@@ -5,4 +5,4 @@ cryptography==43.0.3
 python-multipart==0.0.12
 pydantic==2.8.2
 aiofiles==24.1.0
-libsql-experimental==0.0.68
+libsql-experimental>=0.0.55
