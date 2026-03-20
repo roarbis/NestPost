@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NestPost — Login</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; font-family: 'Inter', system-ui, sans-serif; }
+    body {
+      margin: 0; min-height: 100vh;
+      background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .login-card {
+      background: #fff; border-radius: 24px; padding: 48px 40px;
+      width: 100%; max-width: 400px; box-shadow: 0 24px 60px rgba(0,0,0,0.3);
+      text-align: center;
+    }
+    .logo {
+      width: 56px; height: 56px; border-radius: 16px;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      color: #fff; font-weight: 800; font-size: 1.2rem;
+      display: inline-flex; align-items: center; justify-content: center;
+      margin-bottom: 20px;
+    }
+    h1 { font-size: 1.5rem; font-weight: 800; color: #0f172a; margin: 0 0 6px; }
+    .subtitle { font-size: 0.875rem; color: #94a3b8; margin: 0 0 32px; font-weight: 500; }
+    #setup-hint {
+      font-size: 0.8rem; color: #6366f1; background: #eef2ff;
+      border: 1px solid #c7d2fe; border-radius: 10px;
+      padding: 10px 14px; margin-bottom: 20px; display: none;
+    }
+    label { display: block; text-align: left; font-size: 0.8125rem; font-weight: 600; color: #374151; margin-bottom: 6px; }
+    input {
+      width: 100%; padding: 12px 16px; border: 1.5px solid #e5e7eb;
+      border-radius: 12px; font-size: 0.9375rem; color: #111827;
+      background: #fff; transition: all 0.15s; outline: none;
+    }
+    input:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.12); }
+    #confirm-group { display: none; margin-top: 14px; }
+    .btn {
+      width: 100%; padding: 13px; border-radius: 12px; border: none;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      color: #fff; font-weight: 700; font-size: 0.9375rem;
+      cursor: pointer; transition: all 0.2s; margin-top: 24px;
+    }
+    .btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(99,102,241,0.45); }
+    .btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
+    .error {
+      color: #ef4444; font-size: 0.8125rem; font-weight: 600;
+      margin-top: 12px; display: none;
+    }
+    .footer { font-size: 0.75rem; color: #cbd5e1; margin-top: 28px; }
+    .footer a { color: #6366f1; text-decoration: none; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="login-card">
+    <div class="logo">NP</div>
+    <h1>NestPost</h1>
+    <p class="subtitle" id="subtitle">Sign in to your account</p>
+    <div id="setup-hint">First time? Create your admin password below.</div>
+
+    <form id="auth-form" onsubmit="handleSubmit(event)">
+      <div>
+        <label for="password" id="password-label">Password</label>
+        <input type="password" id="password" placeholder="Enter password" autocomplete="current-password" required autofocus />
+      </div>
+      <div id="confirm-group">
+        <label for="confirm">Confirm Password</label>
+        <input type="password" id="confirm" placeholder="Re-enter password" autocomplete="new-password" />
+      </div>
+      <button type="submit" class="btn" id="submit-btn">Sign In</button>
+      <div class="error" id="error-msg"></div>
+    </form>
+
+    <p class="footer">by <a href="#">ConnectNest</a></p>
+  </div>
+
+  <script>
+    let isSetup = false;
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      try {
+        const res = await fetch('/api/auth-status');
+        const data = await res.json();
+        if (!data.setup_done) {
+          isSetup = true;
+          document.getElementById('subtitle').textContent = 'Create your admin password';
+          document.getElementById('setup-hint').style.display = 'block';
+          document.getElementById('confirm-group').style.display = 'block';
+          document.getElementById('submit-btn').textContent = 'Create Account';
+          document.getElementById('password-label').textContent = 'New Password';
+          document.getElementById('password').placeholder = 'Minimum 6 characters';
+          document.getElementById('password').autocomplete = 'new-password';
+        }
+      } catch { /* default to login */ }
+    });
+
+    async function handleSubmit(e) {
+      e.preventDefault();
+      const errEl = document.getElementById('error-msg');
+      errEl.style.display = 'none';
+
+      const password = document.getElementById('password').value;
+
+      if (isSetup) {
+        const confirm = document.getElementById('confirm').value;
+        if (password.length < 6) {
+          errEl.textContent = 'Password must be at least 6 characters';
+          errEl.style.display = '';
+          return;
+        }
+        if (password !== confirm) {
+          errEl.textContent = 'Passwords do not match';
+          errEl.style.display = '';
+          return;
+        }
+      }
+
+      const btn = document.getElementById('submit-btn');
+      btn.disabled = true;
+      btn.textContent = isSetup ? 'Creating...' : 'Signing in...';
+
+      try {
+        const endpoint = isSetup ? '/api/setup' : '/api/login';
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ detail: 'Failed' }));
+          throw new Error(err.detail || 'Authentication failed');
+        }
+
+        window.location.href = '/';
+      } catch (err) {
+        errEl.textContent = err.message;
+        errEl.style.display = '';
+        btn.disabled = false;
+        btn.textContent = isSetup ? 'Create Account' : 'Sign In';
+      }
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: nestpost
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
+      - key: FERNET_KEY
+        sync: false
+      - key: PYTHON_VERSION
+        value: "3.13.0"
