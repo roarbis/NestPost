@@ -4,6 +4,10 @@ let modalDirty = false;
 let suggestions = { topics: [], content_types: [], tones: [] };
 let generatedImages = [];
 let selectedImageIdx = null;
+let bulkSelected = new Set();
+
+// Platform character limits
+const PLATFORM_LIMITS = { instagram: 2200, linkedin: 3000, facebook: 63206 };
 
 document.addEventListener('DOMContentLoaded', async () => {
   setGreeting();
@@ -295,10 +299,17 @@ async function loadLibrary() {
   const grid = document.getElementById('library-grid');
   if (!grid) return;
   grid.innerHTML = skeletonGrid(4);
+  bulkSelected.clear();
+  updateBulkBar();
   try {
     const params = new URLSearchParams(window.libraryFilter || {});
+    const searchInput = document.getElementById('library-search');
+    if (searchInput && searchInput.value.trim()) params.set('search', searchInput.value.trim());
     const data = await api(`/api/content?${params}`);
     grid.innerHTML = '';
+    // Show result count
+    const countEl = document.getElementById('library-count');
+    if (countEl) countEl.textContent = `${data.total || data.content.length} post${(data.total || data.content.length) !== 1 ? 's' : ''}`;
     if (!data.content?.length) {
       grid.innerHTML = `
         <div style="grid-column:1/-1;text-align:center;padding:64px 24px;color:#64748b;">
@@ -320,6 +331,43 @@ function filterLibrary(key, value, btn) {
   document.querySelectorAll('.filter-tab').forEach(b => b.classList.remove('active'));
   if (btn) btn.classList.add('active');
   loadLibrary();
+}
+
+let _searchDebounce;
+function searchLibrary(val) {
+  clearTimeout(_searchDebounce);
+  _searchDebounce = setTimeout(() => loadLibrary(), 300);
+}
+
+function toggleBulkSelect(id, checkbox, event) {
+  event.stopPropagation();
+  if (checkbox.checked) bulkSelected.add(id); else bulkSelected.delete(id);
+  updateBulkBar();
+}
+
+function updateBulkBar() {
+  const bar = document.getElementById('bulk-bar');
+  if (!bar) return;
+  if (bulkSelected.size > 0) {
+    bar.style.display = 'flex';
+    document.getElementById('bulk-count').textContent = `${bulkSelected.size} selected`;
+  } else {
+    bar.style.display = 'none';
+  }
+}
+
+async function bulkAction(action) {
+  if (!bulkSelected.size) return;
+  const label = action === 'delete' ? 'delete' : action === 'approve' ? 'approve' : 'mark as posted';
+  if (!confirm(`${label.charAt(0).toUpperCase() + label.slice(1)} ${bulkSelected.size} item(s)?`)) return;
+  try {
+    await api('/api/content/bulk-action', 'POST', { ids: [...bulkSelected], action });
+    showToast(`${bulkSelected.size} item(s) ${action === 'delete' ? 'deleted' : action === 'approve' ? 'approved' : 'marked as posted'}`, 'success');
+    bulkSelected.clear();
+    updateBulkBar();
+    loadLibrary();
+    loadStats();
+  } catch (err) { showToast(err.message, 'error'); }
 }
 
 function buildContentCard(item, isNew) {
@@ -346,6 +394,7 @@ function buildContentCard(item, isNew) {
     <div style="padding:18px 20px;display:flex;flex-direction:column;flex:1;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
         <div style="display:flex;align-items:center;gap:9px;">
+          <input type="checkbox" onclick="toggleBulkSelect(${item.id},this,event)" style="width:16px;height:16px;accent-color:#6366f1;cursor:pointer;flex-shrink:0;" title="Select for bulk action" />
           <div class="plat-icon-${item.platform === 'instagram' ? 'ig' : item.platform === 'linkedin' ? 'li' : 'fb'}" style="width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:14px;">
             <span>${platEmoji(item.platform)}</span>
           </div>
@@ -399,6 +448,10 @@ async function openModal(id) {
     if (captionEl) captionEl.value = caption;
     if (hashtagsEl) hashtagsEl.value = item.hashtags || '';
 
+    // Set platform limit for character counter
+    window._modalPlatform = item.platform;
+    updateCharCount();
+
     document.getElementById('modal-image-suggestion').textContent = item.image_suggestion || 'No image suggestion available.';
     updateFullPreview();
 
@@ -435,6 +488,19 @@ function markModalDirty() {
   modalDirty = true;
   document.getElementById('modal-save-btn').style.display = '';
   updateFullPreview();
+  updateCharCount();
+}
+
+function updateCharCount() {
+  const el = document.getElementById('modal-char-count');
+  const captionEl = document.getElementById('modal-caption-text');
+  if (!el || !captionEl) return;
+  const platform = window._modalPlatform || 'instagram';
+  const limit = PLATFORM_LIMITS[platform] || 2200;
+  const len = captionEl.value.length;
+  const pct = Math.round((len / limit) * 100);
+  const color = pct > 95 ? '#ef4444' : pct > 80 ? '#fbbf24' : '#2dd4bf';
+  el.innerHTML = `<span style="color:${color};font-weight:600;">${len}</span><span style="color:#64748b;"> / ${limit}</span>`;
 }
 
 function updateFullPreview() {

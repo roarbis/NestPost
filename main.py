@@ -20,8 +20,9 @@ sys.path.insert(0, str(BASE_DIR))
 from database import (
     init_db, get_conn, get_setting, set_setting, get_recent_topics,
     is_setup_done, set_admin_password, verify_password,
-    create_session, validate_session, delete_session,
+    create_session, validate_session, delete_session, cleanup_old_sessions,
 )
+import time
 from knowledge_base import TOPIC_TEMPLATES, CONTENT_TYPES, TONES, pick_next_topic
 from ai_client import generate_post, get_ollama_models, check_ollama_health
 from image_client import (
@@ -29,8 +30,11 @@ from image_client import (
     IMAGE_PROVIDERS, ASPECT_RATIOS,
 )
 
+from starlette.middleware.gzip import GZipMiddleware
+
 app = FastAPI(title="ConnectNest Marketing Assistant")
 
+app.add_middleware(GZipMiddleware, minimum_size=500)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[],
@@ -71,9 +75,14 @@ app.add_middleware(AuthMiddleware)
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 
+# ── Provider status cache (30s TTL) ──────────────────────────────────────────
+_provider_cache = {"data": None, "expires": 0}
+PROVIDER_CACHE_TTL = 30  # seconds
+
 @app.on_event("startup")
 async def startup():
     init_db()
+    cleanup_old_sessions(30)
 
 
 # ── Auth Routes ──────────────────────────────────────────────────────────────
@@ -154,8 +163,12 @@ async def health():
 
 @app.get("/api/provider-status")
 async def provider_status():
-    """Check connectivity for all configured text and image providers."""
+    """Check connectivity for all configured text and image providers (cached 30s)."""
     import asyncio
+
+    # Return cached result if fresh
+    if _provider_cache["data"] and time.time() < _provider_cache["expires"]:
+        return _provider_cache["data"]
 
     ollama_url = get_setting("ollama_url", "http://localhost:11434")
     gemini_key = get_setting("gemini_api_key", "")
@@ -255,7 +268,7 @@ async def provider_status():
             return False
         return r  # True, False, or None
 
-    return {
+    result = {
         "text": {
             "ollama": {"online": status_val(results[0]), "url": ollama_url},
             "groq": {"online": status_val(results[1])},
@@ -271,6 +284,9 @@ async def provider_status():
             "dalle": {"online": status_val(results[7]), "label": "DALL-E 3"},
         },
     }
+    _provider_cache["data"] = result
+    _provider_cache["expires"] = time.time() + PROVIDER_CACHE_TTL
+    return result
 
 
 # ── Models ────────────────────────────────────────────────────────────────────
@@ -429,20 +445,58 @@ async def generate(req: GenerateRequest):
 # ── Content Library ───────────────────────────────────────────────────────────
 
 @app.get("/api/content")
-async def list_content(platform: Optional[str] = None, status: Optional[str] = None):
+async def list_content(
+    platform: Optional[str] = None,
+    status: Optional[str] = None,
+    search: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+):
     conn = get_conn()
     query = "SELECT * FROM content WHERE 1=1"
+    count_query = "SELECT COUNT(*) as cnt FROM content WHERE 1=1"
     params = []
     if platform:
         query += " AND platform = ?"
+        count_query += " AND platform = ?"
         params.append(platform)
     if status:
         query += " AND status = ?"
+        count_query += " AND status = ?"
         params.append(status)
-    query += " ORDER BY created_at DESC"
+    if search:
+        query += " AND (caption LIKE ? OR topic LIKE ? OR hashtags LIKE ?)"
+        count_query += " AND (caption LIKE ? OR topic LIKE ? OR hashtags LIKE ?)"
+        term = f"%{search}%"
+        params.extend([term, term, term])
+    total = conn.execute(count_query, tuple(params)).fetchone()["cnt"]
+    query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
     rows = conn.execute(query, tuple(params)).fetchall()
     conn.close()
-    return {"content": [dict(r) for r in rows]}
+    return {"content": [dict(r) for r in rows], "total": total, "limit": limit, "offset": offset}
+
+
+@app.post("/api/content/bulk-action")
+async def bulk_action(body: dict):
+    """Approve or delete multiple content items at once."""
+    ids = body.get("ids", [])
+    action = body.get("action", "")
+    if not ids or action not in ("approve", "delete", "posted"):
+        raise HTTPException(status_code=400, detail="Provide ids[] and action (approve|delete|posted)")
+    conn = get_conn()
+    placeholders = ",".join("?" * len(ids))
+    if action == "delete":
+        conn.execute(f"DELETE FROM content WHERE id IN ({placeholders})", tuple(ids))
+    else:
+        new_status = "approved" if action == "approve" else "posted"
+        conn.execute(
+            f"UPDATE content SET status = ? WHERE id IN ({placeholders})",
+            tuple([new_status] + ids),
+        )
+    conn.commit()
+    conn.close()
+    return {"ok": True, "affected": len(ids)}
 
 
 @app.get("/api/content/{item_id}")
@@ -708,10 +762,15 @@ async def delete_image(item_id: int):
 @app.get("/api/stats")
 async def stats():
     conn = get_conn()
-    total = conn.execute("SELECT COUNT(*) FROM content").fetchone()[0]
-    draft = conn.execute("SELECT COUNT(*) FROM content WHERE status = 'draft'").fetchone()[0]
-    approved = conn.execute("SELECT COUNT(*) FROM content WHERE status = 'approved'").fetchone()[0]
-    posted = conn.execute("SELECT COUNT(*) FROM content WHERE status = 'posted'").fetchone()[0]
+    # Single query for all counts (was 4 separate queries)
+    counts = conn.execute("""
+        SELECT
+            COUNT(*) as total,
+            SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as draft,
+            SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as approved,
+            SUM(CASE WHEN status = 'posted' THEN 1 ELSE 0 END) as posted
+        FROM content
+    """).fetchone()
     by_platform = conn.execute(
         "SELECT platform, COUNT(*) as cnt FROM content GROUP BY platform"
     ).fetchall()
@@ -720,10 +779,10 @@ async def stats():
     ).fetchall()
     conn.close()
     return {
-        "total": total,
-        "draft": draft,
-        "approved": approved,
-        "posted": posted,
+        "total": counts["total"] or 0,
+        "draft": counts["draft"] or 0,
+        "approved": counts["approved"] or 0,
+        "posted": counts["posted"] or 0,
         "by_platform": {r["platform"]: r["cnt"] for r in by_platform},
         "recent": [dict(r) for r in recent],
     }
@@ -768,21 +827,21 @@ SETTINGS_KEYS = [
 
 @app.get("/api/settings")
 async def get_settings():
-    result = {}
+    result = {k: "" for k in SETTINGS_KEYS}
     conn = get_conn()
-    for key in SETTINGS_KEYS:
-        row = conn.execute(
-            "SELECT value, is_encrypted FROM settings WHERE key = ?", (key,)
-        ).fetchone()
-        if row:
-            if row["is_encrypted"] and row["value"]:
-                # Mask sensitive values — just show if set
-                result[key] = "••••••••" if row["value"] else ""
-            else:
-                result[key] = row["value"] or ""
-        else:
-            result[key] = ""
+    # Single query instead of 16 separate ones
+    rows = conn.execute(
+        "SELECT key, value, is_encrypted FROM settings"
+    ).fetchall()
     conn.close()
+    for row in rows:
+        k = row["key"]
+        if k not in result:
+            continue
+        if row["is_encrypted"] and row["value"]:
+            result[k] = "••••••••"
+        else:
+            result[k] = row["value"] or ""
     return result
 
 

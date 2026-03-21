@@ -44,6 +44,20 @@ def init_db():
     except Exception:
         pass
 
+    # Performance indexes
+    try:
+        c.execute("CREATE INDEX IF NOT EXISTS idx_content_platform ON content(platform)")
+    except Exception:
+        pass
+    try:
+        c.execute("CREATE INDEX IF NOT EXISTS idx_content_status ON content(status)")
+    except Exception:
+        pass
+    try:
+        c.execute("CREATE INDEX IF NOT EXISTS idx_content_created ON content(created_at DESC)")
+    except Exception:
+        pass
+
     c.execute("""
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
@@ -70,6 +84,17 @@ def init_db():
         )
     """)
 
+    conn.commit()
+    conn.close()
+
+
+def cleanup_old_sessions(max_age_days: int = 30):
+    """Remove sessions older than max_age_days."""
+    conn = get_conn()
+    conn.execute(
+        "DELETE FROM sessions WHERE created_at < datetime('now', ?)",
+        (f"-{max_age_days} days",),
+    )
     conn.commit()
     conn.close()
 
