@@ -317,7 +317,7 @@ async def generate_images(
 
 
 def overlay_logo(image_b64: str, logo_b64: str, image_mime: str = "image/png",
-                 logo_mime: str = "image/png", logo_scale: float = 0.12,
+                 logo_mime: str = "image/png", logo_scale: float = 0.06,
                  padding_pct: float = 0.03, opacity: float = 0.85) -> tuple[str, str]:
     """Overlay a logo on the bottom-right corner of an image.
 
