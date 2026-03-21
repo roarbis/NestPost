@@ -144,7 +144,7 @@ class DictCursor:
         self._conn = conn
 
     def execute(self, sql, params=()):
-        self._cursor = self._conn.execute(sql, params)
+        self._cursor = self._conn.execute(sql, tuple(params) if not isinstance(params, tuple) else params)
         return self
 
     def fetchone(self):
