@@ -75,9 +75,26 @@
 
     @keyframes fadeIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
     .login-card { animation: fadeIn 0.5s cubic-bezier(0.34,1.56,0.64,1) forwards; }
+
+    /* Aurora Light theme */
+    body.light-theme::before { background: rgba(247,255,253,0.4); }
+    body.light-theme .login-card { background: rgba(255,255,255,0.85); border-color: rgba(0,0,0,0.08); box-shadow: 0 24px 60px rgba(0,0,0,0.08), 0 0 80px rgba(63,199,195,0.1); }
+    body.light-theme .logo { background: linear-gradient(135deg, #3FC7C3, #00EA8D); box-shadow: 0 8px 24px rgba(63,199,195,0.3); }
+    body.light-theme h1 { color: #1D4E6B; }
+    body.light-theme .subtitle { color: #5D868E; }
+    body.light-theme label { color: #5D868E; }
+    body.light-theme input { background: rgba(247,255,253,0.8); color: #1D4E6B; border-color: rgba(0,0,0,0.1); }
+    body.light-theme input::placeholder { color: #84BAAE; }
+    body.light-theme input:focus { border-color: #3FC7C3; box-shadow: 0 0 0 3px rgba(63,199,195,0.2); background: #fff; }
+    body.light-theme .btn { background: linear-gradient(135deg, #3FC7C3, #00EA8D); box-shadow: 0 4px 16px rgba(63,199,195,0.3); }
+    body.light-theme .btn:hover { box-shadow: 0 8px 28px rgba(63,199,195,0.4); }
+    body.light-theme .footer { color: #84BAAE; }
+    body.light-theme .footer a { color: #097FA5; }
+    body.light-theme #setup-hint { color: #097FA5; background: rgba(63,199,195,0.1); border-color: rgba(63,199,195,0.25); }
   </style>
 </head>
 <body>
+  <script>if (localStorage.getItem('nestpost-theme') === 'light') document.body.classList.add('light-theme');</script>
   <div class="login-card">
     <div class="logo">NP</div>
     <h1>NestPost</h1>
