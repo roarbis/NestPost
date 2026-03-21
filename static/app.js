@@ -387,7 +387,7 @@ function buildContentCard(item, isNew) {
   div.innerHTML = `
     ${hasImage
       ? `<div style="height:140px;overflow:hidden;flex-shrink:0;position:relative;">
-           <img src="${item.image_path}?t=${Date.now()}" style="width:100%;height:100%;object-fit:cover;" />
+           <img src="${item.image_path}?t=${Date.now()}" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.style.display='none'" />
            <div style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.5);color:#fff;font-size:0.65rem;font-weight:700;padding:2px 8px;border-radius:99px;">📸 AI</div>
          </div>`
       : `<div class="strip-${item.platform === 'instagram' ? 'ig' : item.platform === 'linkedin' ? 'li' : 'fb'}" style="height:5px;flex-shrink:0;"></div>`

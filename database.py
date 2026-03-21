@@ -43,6 +43,14 @@ def init_db():
         c.execute("ALTER TABLE content ADD COLUMN image_prompt TEXT")
     except Exception:
         pass
+    try:
+        c.execute("ALTER TABLE content ADD COLUMN image_data TEXT")
+    except Exception:
+        pass
+    try:
+        c.execute("ALTER TABLE content ADD COLUMN image_mime TEXT DEFAULT 'image/png'")
+    except Exception:
+        pass
 
     # Performance indexes
     try:

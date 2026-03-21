@@ -542,7 +542,7 @@ async def generate(req: GenerateRequest):
             conn.commit()
             new_id = cursor.lastrowid
 
-            row = conn.execute("SELECT * FROM content WHERE id = ?", (new_id,)).fetchone()
+            row = conn.execute(f"SELECT {CONTENT_COLS} FROM content WHERE id = ?", (new_id,)).fetchone()
             conn.close()
 
             results.append(dict(row))
@@ -560,6 +560,8 @@ async def generate(req: GenerateRequest):
 
 
 # ── Content Library ───────────────────────────────────────────────────────────
+# Exclude image_data from queries to avoid sending huge blobs in API responses
+CONTENT_COLS = "id, platform, content_type, topic, caption, hashtags, image_suggestion, hook, cta, status, created_at, posted_at, image_path, image_prompt"
 
 @app.get("/api/content")
 async def list_content(
@@ -570,7 +572,7 @@ async def list_content(
     offset: int = 0,
 ):
     conn = get_conn()
-    query = "SELECT * FROM content WHERE 1=1"
+    query = f"SELECT {CONTENT_COLS} FROM content WHERE 1=1"
     count_query = "SELECT COUNT(*) as cnt FROM content WHERE 1=1"
     params = []
     if platform:
@@ -619,7 +621,7 @@ async def bulk_action(body: dict):
 @app.get("/api/content/{item_id}")
 async def get_content(item_id: int):
     conn = get_conn()
-    row = conn.execute("SELECT * FROM content WHERE id = ?", (item_id,)).fetchone()
+    row = conn.execute(f"SELECT {CONTENT_COLS} FROM content WHERE id = ?", (item_id,)).fetchone()
     conn.close()
     if not row:
         raise HTTPException(status_code=404, detail="Not found")
@@ -636,7 +638,7 @@ class ContentUpdate(BaseModel):
 @app.put("/api/content/{item_id}")
 async def update_content(item_id: int, update: ContentUpdate):
     conn = get_conn()
-    row = conn.execute("SELECT * FROM content WHERE id = ?", (item_id,)).fetchone()
+    row = conn.execute(f"SELECT {CONTENT_COLS} FROM content WHERE id = ?", (item_id,)).fetchone()
     if not row:
         conn.close()
         raise HTTPException(status_code=404, detail="Not found")
@@ -663,7 +665,7 @@ async def update_content(item_id: int, update: ContentUpdate):
         conn.execute(f"UPDATE content SET {', '.join(fields)} WHERE id = ?", values)
         conn.commit()
 
-    row = conn.execute("SELECT * FROM content WHERE id = ?", (item_id,)).fetchone()
+    row = conn.execute(f"SELECT {CONTENT_COLS} FROM content WHERE id = ?", (item_id,)).fetchone()
     conn.close()
     return dict(row)
 
@@ -714,7 +716,7 @@ async def import_content(req: ImportRequest):
     )
     conn.commit()
     new_id = cursor.lastrowid
-    row = conn.execute("SELECT * FROM content WHERE id = ?", (new_id,)).fetchone()
+    row = conn.execute(f"SELECT {CONTENT_COLS} FROM content WHERE id = ?", (new_id,)).fetchone()
     conn.close()
     return {"imported": dict(row)}
 
@@ -735,7 +737,7 @@ class RefinePromptRequest(BaseModel):
 async def refine_prompt(req: RefinePromptRequest):
     """Refine a content item's image_suggestion into a detailed image gen prompt."""
     conn = get_conn()
-    row = conn.execute("SELECT * FROM content WHERE id = ?", (req.content_id,)).fetchone()
+    row = conn.execute(f"SELECT {CONTENT_COLS} FROM content WHERE id = ?", (req.content_id,)).fetchone()
     conn.close()
     if not row:
         raise HTTPException(status_code=404, detail="Content not found")
@@ -773,7 +775,7 @@ class GenerateImageRequest(BaseModel):
 async def generate_image(req: GenerateImageRequest):
     """Generate images for a content item. Returns base64 images for selection."""
     conn = get_conn()
-    row = conn.execute("SELECT * FROM content WHERE id = ?", (req.content_id,)).fetchone()
+    row = conn.execute(f"SELECT {CONTENT_COLS} FROM content WHERE id = ?", (req.content_id,)).fetchone()
     conn.close()
     if not row:
         raise HTTPException(status_code=404, detail="Content not found")
@@ -813,60 +815,50 @@ class SaveImageRequest(BaseModel):
 
 @app.post("/api/save-image")
 async def save_image(req: SaveImageRequest):
-    """Save a selected image to disk and link it to a content item."""
+    """Save a selected image to the database and link it to a content item."""
     conn = get_conn()
-    row = conn.execute("SELECT * FROM content WHERE id = ?", (req.content_id,)).fetchone()
+    row = conn.execute(f"SELECT {CONTENT_COLS} FROM content WHERE id = ?", (req.content_id,)).fetchone()
     if not row:
         conn.close()
         raise HTTPException(status_code=404, detail="Content not found")
 
-    # Ensure images directory exists
-    images_dir = BASE_DIR / "static" / "images"
-    images_dir.mkdir(exist_ok=True)
-
-    # Determine file extension
-    ext = "png" if "png" in req.mime_type else "jpg"
-    filename = f"{req.content_id}.{ext}"
-    filepath = images_dir / filename
-
-    # Decode and save
-    try:
-        image_data = base64.b64decode(req.image_base64)
-        with open(filepath, "wb") as f:
-            f.write(image_data)
-    except Exception as e:
-        conn.close()
-        raise HTTPException(status_code=500, detail=f"Failed to save image: {str(e)}")
-
-    # Update DB
-    image_path = f"/static/images/{filename}"
+    # Store image as base64 in DB (survives Render redeploys)
+    image_path = f"/api/content/{req.content_id}/image-file"
     conn.execute(
-        "UPDATE content SET image_path = ?, image_prompt = ? WHERE id = ?",
-        (image_path, req.image_prompt, req.content_id),
+        "UPDATE content SET image_path = ?, image_prompt = ?, image_data = ?, image_mime = ? WHERE id = ?",
+        (image_path, req.image_prompt, req.image_base64, req.mime_type, req.content_id),
     )
     conn.commit()
 
-    updated = conn.execute("SELECT * FROM content WHERE id = ?", (req.content_id,)).fetchone()
+    updated = conn.execute(f"SELECT {CONTENT_COLS} FROM content WHERE id = ?", (req.content_id,)).fetchone()
     conn.close()
     return {"saved": True, "image_path": image_path, "content": dict(updated)}
+
+
+@app.get("/api/content/{item_id}/image-file")
+async def serve_content_image(item_id: int):
+    """Serve a content image from the database."""
+    conn = get_conn()
+    row = conn.execute("SELECT image_data, image_mime FROM content WHERE id = ?", (item_id,)).fetchone()
+    conn.close()
+    if not row or not row["image_data"]:
+        raise HTTPException(status_code=404, detail="No image found")
+    image_bytes = base64.b64decode(row["image_data"])
+    mime = row["image_mime"] or "image/png"
+    return Response(content=image_bytes, media_type=mime, headers={"Cache-Control": "public, max-age=86400"})
 
 
 @app.delete("/api/content/{item_id}/image")
 async def delete_image(item_id: int):
     """Remove the image from a content item."""
     conn = get_conn()
-    row = conn.execute("SELECT * FROM content WHERE id = ?", (item_id,)).fetchone()
+    row = conn.execute("SELECT id FROM content WHERE id = ?", (item_id,)).fetchone()
     if not row:
         conn.close()
         raise HTTPException(status_code=404, detail="Content not found")
 
-    if row["image_path"]:
-        filepath = BASE_DIR / row["image_path"].lstrip("/")
-        if filepath.exists():
-            filepath.unlink()
-
     conn.execute(
-        "UPDATE content SET image_path = NULL, image_prompt = NULL WHERE id = ?",
+        "UPDATE content SET image_path = NULL, image_prompt = NULL, image_data = NULL, image_mime = NULL WHERE id = ?",
         (item_id,),
     )
     conn.commit()
@@ -892,7 +884,7 @@ async def stats():
         "SELECT platform, COUNT(*) as cnt FROM content GROUP BY platform"
     ).fetchall()
     recent = conn.execute(
-        "SELECT * FROM content ORDER BY created_at DESC LIMIT 5"
+        f"SELECT {CONTENT_COLS} FROM content ORDER BY created_at DESC LIMIT 5"
     ).fetchall()
     conn.close()
     return {
