@@ -430,19 +430,27 @@ async def generate(req: GenerateRequest):
 
 @app.get("/api/content")
 async def list_content(platform: Optional[str] = None, status: Optional[str] = None):
-    conn = get_conn()
-    query = "SELECT * FROM content WHERE 1=1"
-    params = []
-    if platform:
-        query += " AND platform = ?"
-        params.append(platform)
-    if status:
-        query += " AND status = ?"
-        params.append(status)
-    query += " ORDER BY created_at DESC"
-    rows = conn.execute(query, params).fetchall()
-    conn.close()
-    return {"content": [dict(r) for r in rows]}
+    try:
+        conn = get_conn()
+        query = "SELECT * FROM content WHERE 1=1"
+        params = []
+        if platform:
+            query += " AND platform = ?"
+            params.append(platform)
+        if status:
+            query += " AND status = ?"
+            params.append(status)
+        query += " ORDER BY created_at DESC"
+        rows = conn.execute(query, params).fetchall()
+        conn.close()
+        result = []
+        for r in rows:
+            d = {k: r[k] for k in r.keys()}
+            result.append(d)
+        return {"content": result}
+    except Exception as e:
+        import traceback
+        return JSONResponse(status_code=500, content={"detail": str(e), "trace": traceback.format_exc()})
 
 
 @app.get("/api/content/{item_id}")
