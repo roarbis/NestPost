@@ -19,8 +19,9 @@ sys.path.insert(0, str(BASE_DIR))
 
 from database import (
     init_db, get_conn, get_setting, set_setting, get_recent_topics,
-    is_setup_done, set_admin_password, verify_password,
+    is_setup_done, set_admin_password,
     create_session, validate_session, delete_session, cleanup_old_sessions,
+    authenticate_user, change_user_password, get_session_user,
 )
 import time
 from knowledge_base import TOPIC_TEMPLATES, CONTENT_TYPES, TONES, pick_next_topic
@@ -105,17 +106,19 @@ async def auth_status():
 
 
 class LoginRequest(BaseModel):
+    username: str = ""
     password: str
 
 
 @app.post("/api/setup")
 async def setup(req: LoginRequest):
     if is_setup_done():
-        raise HTTPException(status_code=400, detail="Admin password already set")
+        raise HTTPException(status_code=400, detail="Users already exist — use /login")
     if len(req.password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    # init_db seeds default users; this path is rarely hit
     set_admin_password(req.password)
-    token = create_session()
+    token = create_session("masteradmin")
     response = JSONResponse(content={"ok": True})
     response.set_cookie(
         key="session", value=token, httponly=True, samesite="lax", max_age=86400 * 30,
@@ -126,11 +129,14 @@ async def setup(req: LoginRequest):
 @app.post("/api/login")
 async def login(req: LoginRequest):
     if not is_setup_done():
-        raise HTTPException(status_code=400, detail="Admin password not set — use /setup first")
-    if not verify_password(req.password):
-        raise HTTPException(status_code=401, detail="Incorrect password")
-    token = create_session()
-    response = JSONResponse(content={"ok": True})
+        raise HTTPException(status_code=400, detail="No users configured — use /setup first")
+    if not req.username:
+        raise HTTPException(status_code=400, detail="Username is required")
+    user = authenticate_user(req.username, req.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    token = create_session(user["username"])
+    response = JSONResponse(content={"ok": True, "user": user})
     response.set_cookie(
         key="session", value=token, httponly=True, samesite="lax", max_age=86400 * 30,
     )
@@ -145,6 +151,35 @@ async def logout(request: Request):
     response = JSONResponse(content={"ok": True})
     response.delete_cookie("session")
     return response
+
+
+@app.get("/api/me")
+async def current_user(request: Request):
+    """Return the currently logged-in user's info."""
+    token = request.cookies.get("session")
+    user = get_session_user(token) if token else None
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return user
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@app.post("/api/change-password")
+async def change_password(req: ChangePasswordRequest, request: Request):
+    token = request.cookies.get("session")
+    user = get_session_user(token) if token else None
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    if len(req.new_password) < 6:
+        raise HTTPException(status_code=400, detail="New password must be at least 6 characters")
+    ok = change_user_password(user["username"], req.current_password, req.new_password)
+    if not ok:
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+    return {"ok": True, "message": "Password changed successfully"}
 
 
 @app.get("/")

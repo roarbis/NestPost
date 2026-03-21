@@ -80,12 +80,66 @@ def init_db():
     c.execute("""
         CREATE TABLE IF NOT EXISTS sessions (
             token TEXT PRIMARY KEY,
+            username TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
 
+    # Migration: add username column to existing sessions table
+    try:
+        c.execute("ALTER TABLE sessions ADD COLUMN username TEXT")
+    except Exception:
+        pass
+
+    # ── Users table ──────────────────────────────────────────────────────────
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'admin',
+            display_name TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # Seed default users if table is empty
+    _seed_default_users(c)
+
     conn.commit()
     conn.close()
+
+
+def _seed_default_users(cursor):
+    """Create masteradmin and claudeadmin if no users exist yet."""
+    row = cursor.execute("SELECT COUNT(*) as cnt FROM users").fetchone()
+    count = row[0] if row else 0
+    if count > 0:
+        return
+
+    # Migrate existing password from settings if available
+    existing_hash = None
+    try:
+        row = cursor.execute(
+            "SELECT value FROM settings WHERE key = 'admin_password_hash'"
+        ).fetchone()
+        if row:
+            existing_hash = row[0] if isinstance(row, (list, tuple)) else row["value"]
+    except Exception:
+        pass
+
+    # masteradmin gets the existing password hash, or default "Nestpost1"
+    master_hash = existing_hash if existing_hash else _hash_password("Nestpost1")
+    claude_hash = _hash_password("Cl@ud3@admin@1")
+
+    cursor.execute(
+        "INSERT OR IGNORE INTO users (username, password_hash, role, display_name) VALUES (?, ?, ?, ?)",
+        ("masteradmin", master_hash, "masteradmin", "Master Admin"),
+    )
+    cursor.execute(
+        "INSERT OR IGNORE INTO users (username, password_hash, role, display_name) VALUES (?, ?, ?, ?)",
+        ("claudeadmin", claude_hash, "admin", "Claude Admin"),
+    )
 
 
 def cleanup_old_sessions(max_age_days: int = 30):
@@ -107,41 +161,94 @@ def _hash_password(password: str) -> str:
 
 
 def is_setup_done() -> bool:
-    """Check if admin password has been set."""
+    """Check if at least one user exists."""
     conn = get_conn()
-    row = conn.execute(
-        "SELECT value FROM settings WHERE key = 'admin_password_hash'"
-    ).fetchone()
+    row = conn.execute("SELECT COUNT(*) as cnt FROM users").fetchone()
     conn.close()
-    return bool(row and row["value"])
+    return bool(row and row["cnt"] > 0)
 
 
 def set_admin_password(password: str):
+    """Legacy — kept for compatibility. Updates masteradmin password."""
     hashed = _hash_password(password)
     conn = get_conn()
-    conn.execute(
-        "INSERT OR REPLACE INTO settings (key, value, is_encrypted) VALUES (?, ?, 0)",
-        ("admin_password_hash", hashed),
-    )
+    conn.execute("UPDATE users SET password_hash = ? WHERE username = 'masteradmin'", (hashed,))
     conn.commit()
     conn.close()
 
 
 def verify_password(password: str) -> bool:
+    """Legacy single-password check — no longer used."""
+    return False
+
+
+def authenticate_user(username: str, password: str) -> dict | None:
+    """Verify username+password. Returns user dict or None."""
     conn = get_conn()
     row = conn.execute(
-        "SELECT value FROM settings WHERE key = 'admin_password_hash'"
+        "SELECT id, username, password_hash, role, display_name FROM users WHERE username = ?",
+        (username,),
     ).fetchone()
     conn.close()
-    if not row or not row["value"]:
+    if not row:
+        return None
+    if row["password_hash"] != _hash_password(password):
+        return None
+    return {"id": row["id"], "username": row["username"], "role": row["role"], "display_name": row["display_name"]}
+
+
+def create_user(username: str, password: str, role: str = "admin", display_name: str = "") -> bool:
+    """Create a new user. Returns True on success."""
+    hashed = _hash_password(password)
+    conn = get_conn()
+    try:
+        conn.execute(
+            "INSERT INTO users (username, password_hash, role, display_name) VALUES (?, ?, ?, ?)",
+            (username, hashed, role, display_name or username),
+        )
+        conn.commit()
+        return True
+    except Exception:
         return False
-    return row["value"] == _hash_password(password)
+    finally:
+        conn.close()
 
 
-def create_session() -> str:
+def change_user_password(username: str, old_password: str, new_password: str) -> bool:
+    """Change password for a user. Validates old password first."""
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT password_hash FROM users WHERE username = ?", (username,)
+    ).fetchone()
+    if not row or row["password_hash"] != _hash_password(old_password):
+        conn.close()
+        return False
+    conn.execute(
+        "UPDATE users SET password_hash = ? WHERE username = ?",
+        (_hash_password(new_password), username),
+    )
+    conn.commit()
+    conn.close()
+    return True
+
+
+def get_user_by_username(username: str) -> dict | None:
+    """Get user info by username."""
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT id, username, role, display_name, created_at FROM users WHERE username = ?",
+        (username,),
+    ).fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {"id": row["id"], "username": row["username"], "role": row["role"], "display_name": row["display_name"]}
+
+
+def create_session(username: str = "") -> str:
     token = secrets.token_urlsafe(32)
     conn = get_conn()
-    conn.execute("INSERT INTO sessions (token) VALUES (?)", (token,))
+    conn.execute("INSERT INTO sessions (token, username) VALUES (?, ?)", (token, username))
     conn.commit()
     conn.close()
     return token
@@ -154,6 +261,26 @@ def validate_session(token: str) -> bool:
     row = conn.execute("SELECT token FROM sessions WHERE token = ?", (token,)).fetchone()
     conn.close()
     return bool(row)
+
+
+def get_session_user(token: str) -> dict | None:
+    """Get the user associated with a session token."""
+    if not token:
+        return None
+    conn = get_conn()
+    row = conn.execute("SELECT username FROM sessions WHERE token = ?", (token,)).fetchone()
+    if not row or not row["username"]:
+        conn.close()
+        return None
+    username = row["username"]
+    user = conn.execute(
+        "SELECT id, username, role, display_name FROM users WHERE username = ?",
+        (username,),
+    ).fetchone()
+    conn.close()
+    if not user:
+        return None
+    return {"id": user["id"], "username": user["username"], "role": user["role"], "display_name": user["display_name"]}
 
 
 def delete_session(token: str):

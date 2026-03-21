@@ -11,7 +11,7 @@ const PLATFORM_LIMITS = { instagram: 2200, linkedin: 3000, facebook: 63206 };
 
 document.addEventListener('DOMContentLoaded', async () => {
   setGreeting();
-  await Promise.all([loadHealth(), loadStats(), loadSuggestions(), loadModels(), loadSettings()]);
+  await Promise.all([loadHealth(), loadStats(), loadSuggestions(), loadModels(), loadSettings(), loadCurrentUser()]);
   loadRecentContent();
 });
 
@@ -529,12 +529,27 @@ async function saveModal() {
 
 async function approveItem() {
   if (!modalItemId) return;
+  const approvedId = modalItemId;
   try {
     await api(`/api/content/${modalItemId}`, 'PUT', { status: 'approved' });
     showToast('Approved', 'success');
     const btn = document.getElementById('modal-approve-btn');
     btn.innerHTML = '<svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg> Approved';
     btn.disabled = true;
+
+    // Show "View in Library" button
+    let viewBtn = document.getElementById('modal-view-library-btn');
+    if (!viewBtn) {
+      viewBtn = document.createElement('button');
+      viewBtn.id = 'modal-view-library-btn';
+      viewBtn.className = 'btn-secondary';
+      viewBtn.style.cssText = 'font-size:0.8rem;padding:8px 16px;margin-left:8px;';
+      btn.parentElement.appendChild(viewBtn);
+    }
+    viewBtn.innerHTML = '<svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg> View in Library';
+    viewBtn.style.display = '';
+    viewBtn.onclick = () => { closeModal(); showPage('library'); setTimeout(() => openModal(approvedId), 400); };
+
     loadStats();
     if (currentPage === 'library') loadLibrary();
   } catch (err) { showToast(err.message, 'error'); }
@@ -887,6 +902,35 @@ async function removeImage() {
   } catch (err) {
     showToast(err.message, 'error');
   }
+}
+
+async function loadCurrentUser() {
+  try {
+    const user = await api('/api/me');
+    window._currentUser = user;
+    const usernameEl = document.getElementById('settings-username');
+    const roleEl = document.getElementById('settings-role');
+    if (usernameEl) usernameEl.textContent = user.display_name || user.username;
+    if (roleEl) roleEl.textContent = user.role === 'masteradmin' ? 'Master Admin' : 'Admin';
+  } catch { /* silent */ }
+}
+
+async function changePassword() {
+  const current = document.getElementById('s-current-password')?.value;
+  const newPw = document.getElementById('s-new-password')?.value;
+  const confirm = document.getElementById('s-confirm-password')?.value;
+
+  if (!current) { showToast('Enter your current password', 'error'); return; }
+  if (!newPw || newPw.length < 6) { showToast('New password must be at least 6 characters', 'error'); return; }
+  if (newPw !== confirm) { showToast('New passwords do not match', 'error'); return; }
+
+  try {
+    await api('/api/change-password', 'POST', { current_password: current, new_password: newPw });
+    showToast('Password changed successfully', 'success');
+    document.getElementById('s-current-password').value = '';
+    document.getElementById('s-new-password').value = '';
+    document.getElementById('s-confirm-password').value = '';
+  } catch (err) { showToast(err.message, 'error'); }
 }
 
 async function logoutUser() {

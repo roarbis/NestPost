@@ -85,9 +85,13 @@
     <div id="setup-hint">First time? Create your admin password below.</div>
 
     <form id="auth-form" onsubmit="handleSubmit(event)">
+      <div style="margin-bottom:14px;">
+        <label for="username">Username</label>
+        <input type="text" id="username" placeholder="Enter username" autocomplete="username" required autofocus />
+      </div>
       <div>
         <label for="password" id="password-label">Password</label>
-        <input type="password" id="password" placeholder="Enter password" autocomplete="current-password" required autofocus />
+        <input type="password" id="password" placeholder="Enter password" autocomplete="current-password" required />
       </div>
       <div id="confirm-group">
         <label for="confirm">Confirm Password</label>
@@ -125,7 +129,14 @@
       const errEl = document.getElementById('error-msg');
       errEl.style.display = 'none';
 
+      const username = document.getElementById('username').value.trim();
       const password = document.getElementById('password').value;
+
+      if (!username) {
+        errEl.textContent = 'Username is required';
+        errEl.style.display = '';
+        return;
+      }
 
       if (isSetup) {
         const confirm = document.getElementById('confirm').value;
@@ -150,7 +161,7 @@
         const res = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ password }),
+          body: JSON.stringify({ username, password }),
         });
 
         if (!res.ok) {

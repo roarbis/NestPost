@@ -727,6 +727,33 @@
       <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
       Save Settings
     </button>
+
+    <div class="settings-section" style="margin-top:28px;">
+      <div class="settings-header">
+        <h2 style="font-size:0.9375rem;font-weight:700;color:#f1f5f9;margin:0 0 2px;">Account</h2>
+        <p style="font-size:0.8125rem;color:#64748b;margin:0 0 18px;">Logged in as <strong id="settings-username" style="color:#a5b4fc;">—</strong> <span id="settings-role" style="font-size:0.72rem;font-weight:700;background:rgba(99,102,241,0.12);color:#a5b4fc;border:1px solid rgba(99,102,241,0.25);padding:2px 8px;border-radius:99px;margin-left:4px;"></span></p>
+      </div>
+      <div class="settings-body" style="border-top:1px solid rgba(255,255,255,0.06);">
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <div>
+            <label class="lbl">Current Password</label>
+            <input id="s-current-password" class="inp" type="password" placeholder="Enter current password" />
+          </div>
+          <div>
+            <label class="lbl">New Password</label>
+            <input id="s-new-password" class="inp" type="password" placeholder="Minimum 6 characters" />
+          </div>
+          <div>
+            <label class="lbl">Confirm New Password</label>
+            <input id="s-confirm-password" class="inp" type="password" placeholder="Re-enter new password" />
+          </div>
+        </div>
+        <button class="btn-secondary" onclick="changePassword()" style="margin-top:16px;padding:10px 20px;">
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+          Change Password
+        </button>
+      </div>
+    </div>
   </div>
 
 </main>
