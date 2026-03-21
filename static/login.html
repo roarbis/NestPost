@@ -92,10 +92,27 @@
     body.light-theme .footer a { color: #097FA5; }
     body.light-theme #setup-hint { color: #0e6f7a; background: rgba(42,173,169,0.1); border-color: rgba(42,173,169,0.25); }
     body.light-theme .error { color: #dc2626; }
+
+    /* Theme toggle — floating top-right */
+    .theme-fab {
+      position: fixed; top: 14px; right: 18px; z-index: 9999;
+      width: 38px; height: 38px; border-radius: 50%;
+      border: 1px solid rgba(255,255,255,0.15);
+      background: rgba(15,23,42,0.5); backdrop-filter: blur(12px);
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; transition: all 0.2s; box-shadow: 0 2px 12px rgba(0,0,0,0.25);
+      color: #94a3b8;
+    }
+    .theme-fab:hover { transform: scale(1.1); box-shadow: 0 4px 20px rgba(0,0,0,0.35); color: #f1f5f9; }
+    body.light-theme .theme-fab { background: rgba(255,255,255,0.7); border-color: rgba(29,78,107,0.15); box-shadow: 0 2px 12px rgba(0,0,0,0.1); color: #2a6070; }
+    body.light-theme .theme-fab:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.15); color: #143a4f; }
   </style>
 </head>
 <body>
   <script>if (localStorage.getItem('nestpost-theme') === 'light') document.body.classList.add('light-theme');</script>
+  <button class="theme-fab" onclick="toggleLoginTheme()" title="Toggle theme" id="theme-fab">
+    <svg id="theme-icon" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+  </button>
   <div class="login-card">
     <div class="logo">NP</div>
     <h1>NestPost</h1>
@@ -123,6 +140,22 @@
   </div>
 
   <script>
+    function toggleLoginTheme() {
+      document.body.classList.toggle('light-theme');
+      const isLight = document.body.classList.contains('light-theme');
+      localStorage.setItem('nestpost-theme', isLight ? 'light' : 'dark');
+      const iconEl = document.getElementById('theme-icon');
+      if (iconEl) {
+        iconEl.innerHTML = isLight
+          ? '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>'
+          : '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>';
+      }
+    }
+    // Set correct icon on load
+    if (document.body.classList.contains('light-theme')) {
+      document.getElementById('theme-icon').innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>';
+    }
+
     let isSetup = false;
 
     document.addEventListener('DOMContentLoaded', async () => {
