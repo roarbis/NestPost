@@ -283,6 +283,68 @@ def get_session_user(token: str) -> dict | None:
     return {"id": user["id"], "username": user["username"], "role": user["role"], "display_name": user["display_name"]}
 
 
+def list_users() -> list:
+    """Return all users (without password hashes)."""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT id, username, role, display_name, created_at FROM users ORDER BY id"
+    ).fetchall()
+    conn.close()
+    return [{"id": r["id"], "username": r["username"], "role": r["role"],
+             "display_name": r["display_name"], "created_at": r["created_at"]} for r in rows]
+
+
+def delete_user(user_id: int) -> bool:
+    """Delete a user by ID. Cannot delete masteradmin."""
+    conn = get_conn()
+    row = conn.execute("SELECT role FROM users WHERE id = ?", (user_id,)).fetchone()
+    if not row or row["role"] == "masteradmin":
+        conn.close()
+        return False
+    conn.execute("DELETE FROM sessions WHERE username = (SELECT username FROM users WHERE id = ?)", (user_id,))
+    conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+    return True
+
+
+def admin_reset_password(user_id: int, new_password: str) -> bool:
+    """Reset a user's password (admin action, no old password needed)."""
+    conn = get_conn()
+    row = conn.execute("SELECT id FROM users WHERE id = ?", (user_id,)).fetchone()
+    if not row:
+        conn.close()
+        return False
+    conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (_hash_password(new_password), user_id))
+    conn.commit()
+    conn.close()
+    return True
+
+
+def update_user(user_id: int, display_name: str = None, role: str = None) -> bool:
+    """Update user display name and/or role. Cannot change masteradmin's role."""
+    conn = get_conn()
+    row = conn.execute("SELECT role FROM users WHERE id = ?", (user_id,)).fetchone()
+    if not row:
+        conn.close()
+        return False
+    fields, values = [], []
+    if display_name is not None:
+        fields.append("display_name = ?")
+        values.append(display_name)
+    if role is not None and row["role"] != "masteradmin":
+        fields.append("role = ?")
+        values.append(role)
+    if not fields:
+        conn.close()
+        return True
+    values.append(user_id)
+    conn.execute(f"UPDATE users SET {', '.join(fields)} WHERE id = ?", tuple(values))
+    conn.commit()
+    conn.close()
+    return True
+
+
 def delete_session(token: str):
     conn = get_conn()
     conn.execute("DELETE FROM sessions WHERE token = ?", (token,))

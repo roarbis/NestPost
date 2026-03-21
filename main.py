@@ -22,6 +22,7 @@ from database import (
     is_setup_done, set_admin_password,
     create_session, validate_session, delete_session, cleanup_old_sessions,
     authenticate_user, change_user_password, get_session_user,
+    list_users, create_user, delete_user, admin_reset_password, update_user,
 )
 import time
 from knowledge_base import TOPIC_TEMPLATES, CONTENT_TYPES, TONES, pick_next_topic
@@ -180,6 +181,87 @@ async def change_password(req: ChangePasswordRequest, request: Request):
     if not ok:
         raise HTTPException(status_code=401, detail="Current password is incorrect")
     return {"ok": True, "message": "Password changed successfully"}
+
+
+# ── User Management (masteradmin only) ────────────────────────────────────
+
+def _require_masteradmin(request: Request):
+    """Helper: return user if masteradmin, else raise 403."""
+    token = request.cookies.get("session")
+    user = get_session_user(token) if token else None
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    if user["role"] != "masteradmin":
+        raise HTTPException(status_code=403, detail="Master admin access required")
+    return user
+
+
+@app.get("/api/users")
+async def api_list_users(request: Request):
+    _require_masteradmin(request)
+    return {"users": list_users()}
+
+
+class CreateUserRequest(BaseModel):
+    username: str
+    password: str
+    role: str = "admin"
+    display_name: str = ""
+
+
+@app.post("/api/users")
+async def api_create_user(req: CreateUserRequest, request: Request):
+    _require_masteradmin(request)
+    if not req.username or len(req.username) < 3:
+        raise HTTPException(status_code=400, detail="Username must be at least 3 characters")
+    if len(req.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    if req.role not in ("admin", "viewer"):
+        raise HTTPException(status_code=400, detail="Role must be admin or viewer")
+    ok = create_user(req.username, req.password, req.role, req.display_name or req.username)
+    if not ok:
+        raise HTTPException(status_code=409, detail="Username already exists")
+    return {"ok": True, "message": f"User '{req.username}' created"}
+
+
+class UpdateUserRequest(BaseModel):
+    display_name: Optional[str] = None
+    role: Optional[str] = None
+
+
+@app.put("/api/users/{user_id}")
+async def api_update_user(user_id: int, req: UpdateUserRequest, request: Request):
+    _require_masteradmin(request)
+    if req.role and req.role not in ("admin", "viewer"):
+        raise HTTPException(status_code=400, detail="Role must be admin or viewer")
+    ok = update_user(user_id, display_name=req.display_name, role=req.role)
+    if not ok:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"ok": True}
+
+
+class ResetPasswordRequest(BaseModel):
+    new_password: str
+
+
+@app.post("/api/users/{user_id}/reset-password")
+async def api_reset_password(user_id: int, req: ResetPasswordRequest, request: Request):
+    _require_masteradmin(request)
+    if len(req.new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    ok = admin_reset_password(user_id, req.new_password)
+    if not ok:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"ok": True, "message": "Password reset successfully"}
+
+
+@app.delete("/api/users/{user_id}")
+async def api_delete_user(user_id: int, request: Request):
+    _require_masteradmin(request)
+    ok = delete_user(user_id)
+    if not ok:
+        raise HTTPException(status_code=400, detail="Cannot delete this user (masteradmin is protected)")
+    return {"ok": True, "message": "User deleted"}
 
 
 @app.get("/")

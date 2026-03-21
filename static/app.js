@@ -35,6 +35,7 @@ function showPage(page) {
   currentPage = page;
   if (page === 'library') loadLibrary();
   if (page === 'dashboard') { loadStats(); loadRecentContent(); }
+  if (page === 'users') loadUsers();
 }
 
 async function loadHealth() {
@@ -471,6 +472,9 @@ async function openModal(id) {
     const approveBtn = document.getElementById('modal-approve-btn');
     approveBtn.innerHTML = item.status === 'approved' ? '<svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg> Approved' : '<svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg> Approve';
     approveBtn.disabled = item.status === 'approved';
+    // Hide "View in Library" button from previous approval
+    const viewLibBtn = document.getElementById('modal-view-library-btn');
+    if (viewLibBtn) viewLibBtn.style.display = 'none';
     document.getElementById('modal-save-btn').style.display = 'none';
   } catch (err) { showToast(err.message, 'error'); closeModal(); }
 }
@@ -912,6 +916,9 @@ async function loadCurrentUser() {
     const roleEl = document.getElementById('settings-role');
     if (usernameEl) usernameEl.textContent = user.display_name || user.username;
     if (roleEl) roleEl.textContent = user.role === 'masteradmin' ? 'Master Admin' : 'Admin';
+    // Show User Management nav for masteradmin only
+    const navUsers = document.getElementById('nav-users');
+    if (navUsers) navUsers.style.display = user.role === 'masteradmin' ? '' : 'none';
   } catch { /* silent */ }
 }
 
@@ -930,6 +937,100 @@ async function changePassword() {
     document.getElementById('s-current-password').value = '';
     document.getElementById('s-new-password').value = '';
     document.getElementById('s-confirm-password').value = '';
+  } catch (err) { showToast(err.message, 'error'); }
+}
+
+// ── User Management ───────────────────────────────────────────────────────
+
+async function loadUsers() {
+  const table = document.getElementById('users-table');
+  const countEl = document.getElementById('users-count');
+  if (!table) return;
+  table.innerHTML = '<div style="padding:20px;text-align:center;color:#64748b;font-size:0.8rem;">Loading...</div>';
+  try {
+    const data = await api('/api/users');
+    const users = data.users || [];
+    if (countEl) countEl.textContent = `${users.length} user${users.length !== 1 ? 's' : ''}`;
+    if (!users.length) {
+      table.innerHTML = '<div style="padding:32px;text-align:center;color:#64748b;">No users found.</div>';
+      return;
+    }
+    table.innerHTML = users.map(u => {
+      const isMaster = u.role === 'masteradmin';
+      const roleBadge = isMaster
+        ? '<span style="font-size:0.7rem;font-weight:700;background:rgba(251,191,36,0.12);color:#fbbf24;border:1px solid rgba(251,191,36,0.25);padding:2px 8px;border-radius:99px;">Master Admin</span>'
+        : u.role === 'admin'
+        ? '<span style="font-size:0.7rem;font-weight:700;background:rgba(99,102,241,0.12);color:#a5b4fc;border:1px solid rgba(99,102,241,0.25);padding:2px 8px;border-radius:99px;">Admin</span>'
+        : '<span style="font-size:0.7rem;font-weight:700;background:rgba(45,212,191,0.12);color:#2dd4bf;border:1px solid rgba(45,212,191,0.25);padding:2px 8px;border-radius:99px;">Viewer</span>';
+      const actions = isMaster
+        ? '<span style="font-size:0.72rem;color:#475569;font-style:italic;">Protected</span>'
+        : `<button class="btn-ghost" onclick="promptResetPassword(${u.id},'${u.username}')" style="font-size:0.72rem;color:#818cf8;">Reset Password</button>
+           <button class="btn-ghost" onclick="confirmDeleteUser(${u.id},'${u.username}')" style="font-size:0.72rem;color:#f87171;">Delete</button>`;
+      return `<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(255,255,255,0.04);">
+        <div style="display:flex;align-items:center;gap:12px;min-width:0;">
+          <div style="width:36px;height:36px;border-radius:10px;background:${isMaster ? 'linear-gradient(135deg,#f59e0b,#d97706)' : 'linear-gradient(135deg,#6366f1,#8b5cf6)'};display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:0.8rem;flex-shrink:0;">${(u.display_name || u.username).charAt(0).toUpperCase()}</div>
+          <div style="min-width:0;">
+            <div style="font-weight:700;font-size:0.875rem;color:#f1f5f9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${u.display_name || u.username}</div>
+            <div style="font-size:0.75rem;color:#64748b;">@${u.username} ${roleBadge}</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:4px;flex-shrink:0;">${actions}</div>
+      </div>`;
+    }).join('');
+  } catch (err) {
+    table.innerHTML = `<div style="padding:20px;text-align:center;color:#f87171;font-size:0.8rem;">${err.message}</div>`;
+  }
+}
+
+function showAddUserForm() {
+  document.getElementById('add-user-form').style.display = '';
+  document.getElementById('new-user-username').focus();
+}
+
+function hideAddUserForm() {
+  document.getElementById('add-user-form').style.display = 'none';
+  ['new-user-username','new-user-display','new-user-password'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+}
+
+async function createUser() {
+  const username = document.getElementById('new-user-username')?.value.trim();
+  const display_name = document.getElementById('new-user-display')?.value.trim();
+  const password = document.getElementById('new-user-password')?.value;
+  const role = document.getElementById('new-user-role')?.value || 'admin';
+
+  if (!username || username.length < 3) { showToast('Username must be at least 3 characters', 'error'); return; }
+  if (!password || password.length < 6) { showToast('Password must be at least 6 characters', 'error'); return; }
+
+  try {
+    await api('/api/users', 'POST', { username, password, role, display_name: display_name || username });
+    showToast(`User '${username}' created`, 'success');
+    hideAddUserForm();
+    loadUsers();
+  } catch (err) { showToast(err.message, 'error'); }
+}
+
+function promptResetPassword(userId, username) {
+  const newPw = prompt(`Enter new password for @${username} (min 6 characters):`);
+  if (!newPw) return;
+  if (newPw.length < 6) { showToast('Password must be at least 6 characters', 'error'); return; }
+  resetUserPassword(userId, username, newPw);
+}
+
+async function resetUserPassword(userId, username, newPassword) {
+  try {
+    await api(`/api/users/${userId}/reset-password`, 'POST', { new_password: newPassword });
+    showToast(`Password reset for @${username}`, 'success');
+  } catch (err) { showToast(err.message, 'error'); }
+}
+
+async function confirmDeleteUser(userId, username) {
+  if (!confirm(`Delete user @${username}? This cannot be undone.`)) return;
+  try {
+    await api(`/api/users/${userId}`, 'DELETE');
+    showToast(`User @${username} deleted`, 'success');
+    loadUsers();
   } catch (err) { showToast(err.message, 'error'); }
 }
 

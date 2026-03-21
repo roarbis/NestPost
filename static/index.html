@@ -240,6 +240,11 @@
       Settings
     </div>
 
+    <div class="nav-link" id="nav-users" onclick="showPage('users')" style="display:none;">
+      <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+      User Management
+    </div>
+
     <div style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.07);">
       <div class="nav-link" onclick="logoutUser()" style="color:#f87171;">
         <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
@@ -753,6 +758,60 @@
           Change Password
         </button>
       </div>
+    </div>
+  </div>
+
+  <!-- ── User Management (masteradmin only) ──────────────────────────────── -->
+  <div id="page-users" style="padding:32px 36px;max-width:800px;width:100%;margin:0 auto;display:none;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:28px;">
+      <div>
+        <h1 style="font-size:1.625rem;font-weight:800;color:#f1f5f9;margin:0 0 5px;">User Management</h1>
+        <p style="color:#64748b;font-size:0.875rem;margin:0;font-weight:500;">Add, edit, and remove NestPost users.</p>
+      </div>
+      <button class="btn-primary" onclick="showAddUserForm()" style="padding:10px 20px;">
+        <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+        Add User
+      </button>
+    </div>
+
+    <!-- Add User Form (hidden by default) -->
+    <div id="add-user-form" class="card" style="display:none;padding:24px;margin-bottom:24px;">
+      <h3 style="font-size:0.9375rem;font-weight:700;color:#f1f5f9;margin:0 0 16px;">New User</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div>
+          <label class="lbl">Username</label>
+          <input id="new-user-username" class="inp" type="text" placeholder="min. 3 characters" />
+        </div>
+        <div>
+          <label class="lbl">Display Name</label>
+          <input id="new-user-display" class="inp" type="text" placeholder="Full name (optional)" />
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+        <div>
+          <label class="lbl">Password</label>
+          <input id="new-user-password" class="inp" type="password" placeholder="min. 6 characters" />
+        </div>
+        <div>
+          <label class="lbl">Role</label>
+          <select id="new-user-role" class="inp">
+            <option value="admin">Admin — Full access</option>
+            <option value="viewer">Viewer — Read only</option>
+          </select>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;">
+        <button class="btn-primary" onclick="createUser()" style="padding:9px 20px;font-size:0.8125rem;">Create User</button>
+        <button class="btn-secondary" onclick="hideAddUserForm()" style="padding:9px 16px;font-size:0.8125rem;">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Users Table -->
+    <div class="card" style="overflow:hidden;">
+      <div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.06);">
+        <span style="font-size:0.8125rem;font-weight:700;color:#94a3b8;" id="users-count">Loading...</span>
+      </div>
+      <div id="users-table" style="min-height:80px;"></div>
     </div>
   </div>
 
