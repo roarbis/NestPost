@@ -18,14 +18,30 @@
   </script>
   <style>
     *, *::before, *::after { box-sizing: border-box; font-family: 'Inter', system-ui, sans-serif; }
-    body { margin: 0; background: #f0f2f7; }
+    body {
+      margin: 0;
+      background: #070b14;
+      background-image: url('/static/bg/background.png');
+      background-size: cover;
+      background-position: center;
+      background-attachment: fixed;
+      background-repeat: no-repeat;
+      color: #e2e8f0;
+    }
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: rgba(3, 7, 18, 0.6);
+      z-index: 0;
+      pointer-events: none;
+    }
+    body > * { position: relative; z-index: 1; }
 
-    /* ── Scrollbar ── */
     ::-webkit-scrollbar { width: 5px; height: 5px; }
     ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 99px; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 99px; }
 
-    /* ── Sidebar nav ── */
     .nav-link {
       display: flex; align-items: center; gap: 10px; padding: 9px 12px;
       border-radius: 9px; color: #94a3b8; font-size: 0.875rem; font-weight: 500;
@@ -37,12 +53,17 @@
     .nav-link svg { flex-shrink: 0; opacity: 0.8; }
     .nav-link.active svg { opacity: 1; }
 
-    /* ── Cards ── */
-    .card { background: #fff; border-radius: 18px; border: 1px solid #eef0f4; box-shadow: 0 1px 4px rgba(0,0,0,0.05); }
+    .card {
+      background: rgba(15,23,42,0.65);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-radius: 18px;
+      border: 1px solid rgba(255,255,255,0.08);
+      box-shadow: 0 4px 24px rgba(0,0,0,0.25);
+    }
     .card-lift { transition: box-shadow 0.2s, transform 0.2s; cursor: pointer; }
-    .card-lift:hover { box-shadow: 0 8px 28px rgba(0,0,0,0.1); transform: translateY(-2px); }
+    .card-lift:hover { box-shadow: 0 8px 32px rgba(0,0,0,0.4); transform: translateY(-2px); }
 
-    /* ── Buttons ── */
     .btn-primary {
       display: inline-flex; align-items: center; gap: 7px;
       padding: 10px 22px; border-radius: 11px;
@@ -57,39 +78,42 @@
     .btn-white {
       display: inline-flex; align-items: center; gap: 7px;
       padding: 10px 22px; border-radius: 11px;
-      background: #fff; color: #4f46e5; font-weight: 700; font-size: 0.875rem;
-      cursor: pointer; transition: all 0.2s; border: none; outline: none; white-space: nowrap;
+      background: rgba(255,255,255,0.12); color: #fff; font-weight: 700; font-size: 0.875rem;
+      cursor: pointer; transition: all 0.2s; border: 1px solid rgba(255,255,255,0.2); outline: none; white-space: nowrap;
+      backdrop-filter: blur(8px);
     }
-    .btn-white:hover { background: #f0f0ff; }
+    .btn-white:hover { background: rgba(255,255,255,0.2); }
 
     .btn-secondary {
       display: inline-flex; align-items: center; gap: 7px;
       padding: 9px 18px; border-radius: 10px;
-      background: #fff; border: 1.5px solid #e2e8f0; color: #374151;
+      background: rgba(15,23,42,0.6); border: 1.5px solid rgba(255,255,255,0.12); color: #cbd5e1;
       font-weight: 600; font-size: 0.875rem; cursor: pointer; transition: all 0.15s;
+      backdrop-filter: blur(8px);
     }
-    .btn-secondary:hover { background: #f8fafc; border-color: #c7d2e0; }
+    .btn-secondary:hover { background: rgba(30,41,59,0.8); border-color: rgba(255,255,255,0.2); }
 
     .btn-ghost {
       display: inline-flex; align-items: center; gap: 5px;
       padding: 5px 10px; border-radius: 7px;
-      color: #6b7280; font-size: 0.8rem; font-weight: 500;
+      color: #94a3b8; font-size: 0.8rem; font-weight: 500;
       cursor: pointer; transition: all 0.15s; background: transparent; border: none;
     }
-    .btn-ghost:hover { background: #f1f5f9; color: #1e293b; }
+    .btn-ghost:hover { background: rgba(255,255,255,0.08); color: #e2e8f0; }
     .btn-danger-ghost { color: #f87171; }
-    .btn-danger-ghost:hover { background: #fef2f2; color: #ef4444; }
+    .btn-danger-ghost:hover { background: rgba(239,68,68,0.12); color: #ef4444; }
 
-    /* ── Inputs ── */
     .inp {
-      width: 100%; padding: 10px 14px; border: 1.5px solid #e5e7eb;
-      border-radius: 10px; font-size: 0.875rem; color: #111827;
-      background: #fff; transition: all 0.15s; outline: none;
+      width: 100%; padding: 10px 14px; border: 1.5px solid rgba(255,255,255,0.1);
+      border-radius: 10px; font-size: 0.875rem; color: #e2e8f0;
+      background: rgba(15,23,42,0.5); transition: all 0.15s; outline: none;
     }
-    .inp:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.12); }
-    .lbl { display: block; font-size: 0.8125rem; font-weight: 600; color: #374151; margin-bottom: 6px; }
+    .inp:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.2); }
+    .inp::placeholder { color: #475569; }
+    .inp option { background: #0f172a; color: #e2e8f0; }
+    select.inp { cursor: pointer; }
+    .lbl { display: block; font-size: 0.8125rem; font-weight: 600; color: #cbd5e1; margin-bottom: 6px; }
 
-    /* ── Platform strips & icons ── */
     .strip-ig { background: linear-gradient(90deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888); }
     .strip-li { background: #0a66c2; }
     .strip-fb { background: #1877f2; }
@@ -98,81 +122,91 @@
     .plat-icon-li { background: #0a66c2; }
     .plat-icon-fb { background: #1877f2; }
 
-    /* ── Status badges ── */
     .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 99px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.02em; }
-    .badge-draft { background: #fef9ec; color: #92400e; border: 1px solid #fde68a; }
-    .badge-approved { background: #eef2ff; color: #3730a3; border: 1px solid #c7d2fe; }
-    .badge-posted { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
+    .badge-draft { background: rgba(146,64,14,0.15); color: #fbbf24; border: 1px solid rgba(251,191,36,0.25); }
+    .badge-approved { background: rgba(99,102,241,0.15); color: #a5b4fc; border: 1px solid rgba(165,180,252,0.25); }
+    .badge-posted { background: rgba(45,212,191,0.15); color: #2dd4bf; border: 1px solid rgba(45,212,191,0.25); }
 
-    /* ── Platform selection cards ── */
     .plat-card {
-      border: 2.5px solid #e5e7eb; border-radius: 16px; padding: 18px;
+      border: 2.5px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 18px;
       cursor: pointer; transition: all 0.2s; text-align: center; user-select: none;
-      background: #fff;
+      background: rgba(15,23,42,0.5);
+      backdrop-filter: blur(8px);
     }
-    .plat-card:hover { border-color: #c7d2fe; background: #fafbff; transform: translateY(-1px); }
-    .plat-card.sel-ig { border-color: #e1306c; background: linear-gradient(135deg, #fff5f7, #fff8f2); box-shadow: 0 4px 14px rgba(225,48,108,0.15); }
-    .plat-card.sel-li { border-color: #0a66c2; background: #f0f7ff; box-shadow: 0 4px 14px rgba(10,102,194,0.15); }
-    .plat-card.sel-fb { border-color: #1877f2; background: #f0f5ff; box-shadow: 0 4px 14px rgba(24,119,242,0.15); }
+    .plat-card:hover { border-color: rgba(165,180,252,0.3); background: rgba(15,23,42,0.7); transform: translateY(-1px); }
+    .plat-card.sel-ig { border-color: #e1306c; background: rgba(225,48,108,0.1); box-shadow: 0 4px 14px rgba(225,48,108,0.15); }
+    .plat-card.sel-li { border-color: #0a66c2; background: rgba(10,102,194,0.1); box-shadow: 0 4px 14px rgba(10,102,194,0.15); }
+    .plat-card.sel-fb { border-color: #1877f2; background: rgba(24,119,242,0.1); box-shadow: 0 4px 14px rgba(24,119,242,0.15); }
 
-    /* ── Skeleton ── */
-    .skel { background: linear-gradient(90deg, #f1f5f9 25%, #e8ecf2 50%, #f1f5f9 75%); background-size: 200% 100%; animation: skel 1.4s infinite; border-radius: 7px; }
+    .skel { background: linear-gradient(90deg, rgba(30,41,59,0.6) 25%, rgba(51,65,85,0.6) 50%, rgba(30,41,59,0.6) 75%); background-size: 200% 100%; animation: skel 1.4s infinite; border-radius: 7px; }
     @keyframes skel { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
-    /* ── Spinner ── */
     @keyframes spin { to { transform: rotate(360deg); } }
     .spin { animation: spin 0.75s linear infinite; }
 
-    /* ── Toast ── */
     @keyframes tIn { from { transform: translateX(110%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
     @keyframes tOut { from { transform: translateX(0); opacity: 1; } to { transform: translateX(110%); opacity: 0; } }
     .t-in { animation: tIn 0.3s cubic-bezier(0.34,1.56,0.64,1) forwards; }
     .t-out { animation: tOut 0.25s ease forwards; }
 
-    /* ── Modal ── */
     @keyframes mBack { from { opacity: 0; } to { opacity: 1; } }
     @keyframes mCard { from { transform: translateY(24px) scale(0.97); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }
     .modal-back { animation: mBack 0.2s ease forwards; }
     .modal-card { animation: mCard 0.25s cubic-bezier(0.34,1.56,0.64,1) forwards; }
 
-    /* ── Page fade ── */
     @keyframes pgIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
     .page-in { animation: pgIn 0.22s ease forwards; }
 
-    /* ── Stat card ── */
-    .stat-card { background: #fff; border-radius: 18px; border: 1px solid #eef0f4; padding: 22px; box-shadow: 0 1px 4px rgba(0,0,0,0.05); }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 
-    /* ── Filter tabs ── */
+    .stat-card {
+      background: rgba(15,23,42,0.65);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-radius: 18px;
+      border: 1px solid rgba(255,255,255,0.08);
+      padding: 22px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.2);
+    }
+
     .filter-tab {
       padding: 6px 16px; border-radius: 99px; font-size: 0.8125rem; font-weight: 600;
-      cursor: pointer; transition: all 0.15s; border: none; background: transparent; color: #6b7280;
+      cursor: pointer; transition: all 0.15s; border: none;
+      background: transparent; color: #94a3b8;
     }
-    .filter-tab:hover { background: #e5e7eb; color: #1f2937; }
-    .filter-tab.active { background: #1f2937; color: #fff; }
+    .filter-tab:hover { background: rgba(255,255,255,0.08); color: #e2e8f0; }
+    .filter-tab.active { background: rgba(99,102,241,0.25); color: #a5b4fc; }
 
-    /* ── Mode tabs ── */
     .mode-tab {
       padding: 8px 20px; border-radius: 10px; font-size: 0.875rem; font-weight: 600;
-      cursor: pointer; transition: all 0.15s; border: none; color: #6b7280; background: transparent;
+      cursor: pointer; transition: all 0.15s; border: none; color: #94a3b8; background: transparent;
     }
-    .mode-tab.active { background: #fff; color: #4f46e5; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
+    .mode-tab.active {
+      background: rgba(99,102,241,0.2); color: #a5b4fc;
+      box-shadow: 0 1px 8px rgba(99,102,241,0.2);
+    }
 
-    /* ── Settings section ── */
-    .settings-section { background: #fff; border-radius: 18px; border: 1px solid #eef0f4; overflow: hidden; margin-bottom: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.05); }
+    .settings-section {
+      background: rgba(15,23,42,0.65);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-radius: 18px;
+      border: 1px solid rgba(255,255,255,0.08);
+      overflow: hidden;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.2);
+    }
     .settings-header { padding: 20px 24px 0; }
     .settings-body { padding: 16px 24px 24px; }
 
-    /* ── Line clamp ── */
     .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
     .line-clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
   </style>
 </head>
 <body class="flex h-screen overflow-hidden">
 
-<!-- ══════════ SIDEBAR ══════════ -->
-<aside style="width:252px; background:#0f172a; flex-shrink:0; display:flex; flex-direction:column; height:100vh; overflow-y:auto;">
+<aside style="width:252px; background:#0b1120; flex-shrink:0; display:flex; flex-direction:column; height:100vh; overflow-y:auto; border-right:1px solid rgba(255,255,255,0.06);">
 
-  <!-- Logo -->
   <div style="padding:20px 18px 16px; border-bottom:1px solid rgba(255,255,255,0.07);">
     <div style="display:flex; align-items:center; gap:11px;">
       <div style="width:38px;height:38px;border-radius:12px;background:linear-gradient(135deg,#6366f1,#8b5cf6);display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff;font-size:15px;flex-shrink:0;letter-spacing:-0.5px;">NP</div>
@@ -183,7 +217,6 @@
     </div>
   </div>
 
-  <!-- Nav -->
   <nav style="flex:1;padding:10px 10px;" id="sidebar-nav">
     <div style="color:#475569;font-size:0.65rem;font-weight:700;letter-spacing:0.1em;padding:10px 12px 4px;text-transform:uppercase;">Menu</div>
 
@@ -215,9 +248,8 @@
     </div>
   </nav>
 
-  <!-- Provider Status -->
   <div style="padding:10px 16px 18px; border-top:1px solid rgba(255,255,255,0.07);overflow-y:auto;max-height:340px;">
-    <div style="background:rgba(255,255,255,0.05);border-radius:12px;padding:10px 12px;">
+    <div style="background:rgba(255,255,255,0.04);border-radius:12px;padding:10px 12px;">
       <div style="color:#475569;font-size:0.6rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px;">Text Providers</div>
       <div id="text-provider-status" style="display:flex;flex-direction:column;gap:3px;">
         <div style="display:flex;align-items:center;gap:7px;font-size:0.72rem;color:#64748b;font-weight:500;padding:2px 0;">
@@ -225,7 +257,7 @@
         </div>
       </div>
     </div>
-    <div style="background:rgba(255,255,255,0.05);border-radius:12px;padding:10px 12px;margin-top:6px;">
+    <div style="background:rgba(255,255,255,0.04);border-radius:12px;padding:10px 12px;margin-top:6px;">
       <div style="color:#475569;font-size:0.6rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px;">Image Providers</div>
       <div id="image-provider-status" style="display:flex;flex-direction:column;gap:3px;">
         <div style="display:flex;align-items:center;gap:7px;font-size:0.72rem;color:#64748b;font-weight:500;padding:2px 0;">
@@ -236,17 +268,14 @@
   </div>
 </aside>
 
-<!-- ══════════ MAIN ══════════ -->
 <main style="flex:1;overflow-y:auto;display:flex;flex-direction:column;">
 
-  <!-- ── DASHBOARD ── -->
   <div id="page-dashboard" style="padding:32px 36px;max-width:1000px;width:100%;margin:0 auto;">
 
-    <!-- Header -->
     <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:28px;">
       <div>
-        <h1 id="greeting-text" style="font-size:1.625rem;font-weight:800;color:#0f172a;margin:0 0 4px;">Good morning! ☀️</h1>
-        <p id="today-date" style="color:#94a3b8;font-size:0.875rem;margin:0;font-weight:500;"></p>
+        <h1 id="greeting-text" style="font-size:1.625rem;font-weight:800;color:#f1f5f9;margin:0 0 4px;">Good morning!</h1>
+        <p id="today-date" style="color:#64748b;font-size:0.875rem;margin:0;font-weight:500;"></p>
       </div>
       <button class="btn-primary" onclick="showPage('generate')">
         <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"/></svg>
@@ -254,40 +283,38 @@
       </button>
     </div>
 
-    <!-- Stats -->
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px;">
-      <div class="stat-card">
-        <div style="width:40px;height:40px;border-radius:12px;background:#eef2ff;display:flex;align-items:center;justify-content:center;margin-bottom:14px;">
-          <svg width="20" height="20" fill="none" stroke="#6366f1" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+      <div class="stat-card" style="border-left:3px solid #6366f1;">
+        <div style="width:40px;height:40px;border-radius:12px;background:rgba(99,102,241,0.15);display:flex;align-items:center;justify-content:center;margin-bottom:14px;">
+          <svg width="20" height="20" fill="none" stroke="#818cf8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
         </div>
-        <div id="stat-total" style="font-size:2rem;font-weight:800;color:#0f172a;line-height:1;">—</div>
-        <div style="font-size:0.8rem;color:#94a3b8;margin-top:4px;font-weight:500;">Total Created</div>
+        <div id="stat-total" style="font-size:2rem;font-weight:800;color:#f1f5f9;line-height:1;">—</div>
+        <div style="font-size:0.8rem;color:#64748b;margin-top:4px;font-weight:500;">Total Created</div>
       </div>
-      <div class="stat-card">
-        <div style="width:40px;height:40px;border-radius:12px;background:#fefce8;display:flex;align-items:center;justify-content:center;margin-bottom:14px;">
-          <svg width="20" height="20" fill="none" stroke="#ca8a04" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+      <div class="stat-card" style="border-left:3px solid #fbbf24;">
+        <div style="width:40px;height:40px;border-radius:12px;background:rgba(251,191,36,0.12);display:flex;align-items:center;justify-content:center;margin-bottom:14px;">
+          <svg width="20" height="20" fill="none" stroke="#fbbf24" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
         </div>
-        <div id="stat-draft" style="font-size:2rem;font-weight:800;color:#ca8a04;line-height:1;">—</div>
-        <div style="font-size:0.8rem;color:#94a3b8;margin-top:4px;font-weight:500;">Drafts</div>
+        <div id="stat-draft" style="font-size:2rem;font-weight:800;color:#fbbf24;line-height:1;">—</div>
+        <div style="font-size:0.8rem;color:#64748b;margin-top:4px;font-weight:500;">Drafts</div>
       </div>
-      <div class="stat-card">
-        <div style="width:40px;height:40px;border-radius:12px;background:#ede9fe;display:flex;align-items:center;justify-content:center;margin-bottom:14px;">
-          <svg width="20" height="20" fill="none" stroke="#7c3aed" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      <div class="stat-card" style="border-left:3px solid #a78bfa;">
+        <div style="width:40px;height:40px;border-radius:12px;background:rgba(167,139,250,0.12);display:flex;align-items:center;justify-content:center;margin-bottom:14px;">
+          <svg width="20" height="20" fill="none" stroke="#a78bfa" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
         </div>
-        <div id="stat-approved" style="font-size:2rem;font-weight:800;color:#7c3aed;line-height:1;">—</div>
-        <div style="font-size:0.8rem;color:#94a3b8;margin-top:4px;font-weight:500;">Approved</div>
+        <div id="stat-approved" style="font-size:2rem;font-weight:800;color:#a78bfa;line-height:1;">—</div>
+        <div style="font-size:0.8rem;color:#64748b;margin-top:4px;font-weight:500;">Approved</div>
       </div>
-      <div class="stat-card">
-        <div style="width:40px;height:40px;border-radius:12px;background:#ecfdf5;display:flex;align-items:center;justify-content:center;margin-bottom:14px;">
-          <svg width="20" height="20" fill="none" stroke="#059669" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+      <div class="stat-card" style="border-left:3px solid #2dd4bf;">
+        <div style="width:40px;height:40px;border-radius:12px;background:rgba(45,212,191,0.12);display:flex;align-items:center;justify-content:center;margin-bottom:14px;">
+          <svg width="20" height="20" fill="none" stroke="#2dd4bf" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
         </div>
-        <div id="stat-posted" style="font-size:2rem;font-weight:800;color:#059669;line-height:1;">—</div>
-        <div style="font-size:0.8rem;color:#94a3b8;margin-top:4px;font-weight:500;">Posted</div>
+        <div id="stat-posted" style="font-size:2rem;font-weight:800;color:#2dd4bf;line-height:1;">—</div>
+        <div style="font-size:0.8rem;color:#64748b;margin-top:4px;font-weight:500;">Posted</div>
       </div>
     </div>
 
-    <!-- Quick Generate -->
-    <div style="border-radius:20px;overflow:hidden;margin-bottom:24px;background:linear-gradient(135deg,#312e81,#4f46e5 50%,#7c3aed);box-shadow:0 10px 40px rgba(99,102,241,0.35);">
+    <div style="border-radius:20px;overflow:hidden;margin-bottom:24px;background:linear-gradient(135deg,#312e81,#4f46e5 50%,#7c3aed);box-shadow:0 10px 40px rgba(99,102,241,0.25);">
       <div style="padding:28px 32px;display:flex;align-items:center;justify-content:space-between;gap:24px;">
         <div style="flex:1;">
           <div style="display:flex;align-items:center;gap:9px;margin-bottom:6px;">
@@ -316,49 +343,44 @@
       </div>
     </div>
 
-    <!-- Recent Posts -->
     <div class="card" style="padding:24px;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
-        <h2 style="font-size:1rem;font-weight:700;color:#0f172a;margin:0;">Recent Posts</h2>
-        <button class="btn-ghost" onclick="showPage('library')" style="color:#6366f1;font-weight:600;">View all →</button>
+        <h2 style="font-size:1rem;font-weight:700;color:#f1f5f9;margin:0;">Recent Posts</h2>
+        <button class="btn-ghost" onclick="showPage('library')" style="color:#818cf8;font-weight:600;">View all →</button>
       </div>
       <div id="recent-content">
-        <div style="text-align:center;padding:40px 0;color:#cbd5e1;">
+        <div style="text-align:center;padding:40px 0;color:#475569;">
           <svg width="40" height="40" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="margin:0 auto 12px;display:block;opacity:0.4;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-          <p style="margin:0;font-size:0.875rem;font-weight:500;">No posts yet — hit Generate Now to get started</p>
+          <p style="margin:0;font-size:0.875rem;font-weight:500;color:#64748b;">No posts yet — hit Generate Now to get started</p>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- ── GENERATE ── -->
   <div id="page-generate" style="padding:32px 36px;max-width:820px;width:100%;margin:0 auto;display:none;">
 
     <div style="margin-bottom:28px;">
-      <h1 style="font-size:1.625rem;font-weight:800;color:#0f172a;margin:0 0 5px;">Generate Content</h1>
-      <p style="color:#94a3b8;font-size:0.875rem;margin:0;font-weight:500;">Create ready-to-post content tailored to ConnectNest's brand and audience.</p>
+      <h1 style="font-size:1.625rem;font-weight:800;color:#f1f5f9;margin:0 0 5px;">Generate Content</h1>
+      <p style="color:#64748b;font-size:0.875rem;margin:0;font-weight:500;">Create ready-to-post content tailored to ConnectNest's brand and audience.</p>
     </div>
 
-    <!-- Mode tabs -->
-    <div style="background:#f1f5f9;border-radius:13px;padding:5px;display:inline-flex;gap:4px;margin-bottom:28px;">
+    <div style="background:rgba(15,23,42,0.5);border:1px solid rgba(255,255,255,0.08);border-radius:13px;padding:5px;display:inline-flex;gap:4px;margin-bottom:28px;">
       <button class="mode-tab active" id="tab-quick" onclick="setGenMode('quick')">⚡ Quick Generate</button>
       <button class="mode-tab" id="tab-manual" onclick="setGenMode('manual')">🎛️ Manual Mode</button>
     </div>
 
-    <!-- Quick Mode -->
     <div id="mode-quick">
       <div class="card" style="padding:28px;margin-bottom:20px;">
         <div style="display:flex;align-items:flex-start;gap:16px;margin-bottom:24px;">
-          <div style="width:44px;height:44px;border-radius:14px;background:#eef2ff;flex-shrink:0;display:flex;align-items:center;justify-content:center;">
-            <svg width="22" height="22" fill="none" stroke="#6366f1" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          <div style="width:44px;height:44px;border-radius:14px;background:rgba(99,102,241,0.15);flex-shrink:0;display:flex;align-items:center;justify-content:center;">
+            <svg width="22" height="22" fill="none" stroke="#818cf8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
           </div>
           <div>
-            <h3 style="font-size:1rem;font-weight:700;color:#0f172a;margin:0 0 4px;">Auto-pilot mode</h3>
+            <h3 style="font-size:1rem;font-weight:700;color:#f1f5f9;margin:0 0 4px;">Auto-pilot mode</h3>
             <p style="color:#94a3b8;font-size:0.875rem;margin:0;line-height:1.5;">Topics rotate automatically so content stays fresh. Choose platforms, pick your AI engine, and go.</p>
           </div>
         </div>
 
-        <!-- Platform cards -->
         <div style="margin-bottom:22px;">
           <div class="lbl" style="margin-bottom:12px;">Choose platforms</div>
           <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;" id="quick-platform-cards">
@@ -367,7 +389,7 @@
               <div class="plat-icon-ig" style="width:44px;height:44px;border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 10px;">
                 <svg width="22" height="22" fill="none" stroke="#fff" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5" ry="5" stroke-width="2"/><path stroke-width="2" d="M16 11.37A4 4 0 1112.63 8 4 4 0 0116 11.37z"/><line stroke-width="2" x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
               </div>
-              <div style="font-weight:700;font-size:0.875rem;color:#1e293b;">Instagram</div>
+              <div style="font-weight:700;font-size:0.875rem;color:#e2e8f0;">Instagram</div>
               <div class="plat-check-indicator" style="margin-top:6px;font-size:0.75rem;color:#e1306c;font-weight:600;">✓ Selected</div>
             </div>
             <div class="plat-card" data-platform="linkedin" data-selected="0" onclick="togglePlatCard(this,'quick')">
@@ -375,7 +397,7 @@
               <div class="plat-icon-li" style="width:44px;height:44px;border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 10px;">
                 <svg width="22" height="22" fill="none" stroke="#fff" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-2-2 2 2 0 00-2 2v7h-4v-7a6 6 0 016-6z"/><rect stroke-width="2" x="2" y="9" width="4" height="12"/><circle stroke-width="2" cx="4" cy="4" r="2"/></svg>
               </div>
-              <div style="font-weight:700;font-size:0.875rem;color:#1e293b;">LinkedIn</div>
+              <div style="font-weight:700;font-size:0.875rem;color:#e2e8f0;">LinkedIn</div>
               <div class="plat-check-indicator" style="margin-top:6px;font-size:0.75rem;color:#94a3b8;font-weight:500;">+ Select</div>
             </div>
             <div class="plat-card" data-platform="facebook" data-selected="0" onclick="togglePlatCard(this,'quick')">
@@ -383,13 +405,12 @@
               <div class="plat-icon-fb" style="width:44px;height:44px;border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 10px;">
                 <svg width="22" height="22" fill="#fff" viewBox="0 0 24 24"><path d="M18 2h-3a5 5 0 00-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 011-1h3z"/></svg>
               </div>
-              <div style="font-weight:700;font-size:0.875rem;color:#1e293b;">Facebook</div>
+              <div style="font-weight:700;font-size:0.875rem;color:#e2e8f0;">Facebook</div>
               <div class="plat-check-indicator" style="margin-top:6px;font-size:0.75rem;color:#94a3b8;font-weight:500;">+ Select</div>
             </div>
           </div>
         </div>
 
-        <!-- AI model -->
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:24px;">
           <div>
             <label class="lbl">AI Provider</label>
@@ -410,7 +431,6 @@
           </div>
         </div>
 
-        <!-- AI Fiesta info banner (hidden unless aifiesta selected) -->
         <div id="quick-aifiesta-banner" style="display:none;background:linear-gradient(135deg,#0f172a,#1e1b4b);border-radius:12px;padding:14px 16px;margin-bottom:16px;border:1px solid #312e81;">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
             <span style="font-size:1.1rem;">🎪</span>
@@ -427,10 +447,8 @@
       </div>
     </div>
 
-    <!-- Manual Mode -->
     <div id="mode-manual" style="display:none;">
       <div class="card" style="padding:28px;margin-bottom:20px;">
-        <!-- Platform cards -->
         <div style="margin-bottom:22px;">
           <div class="lbl" style="margin-bottom:12px;">Choose platforms</div>
           <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;" id="manual-platform-cards">
@@ -439,7 +457,7 @@
               <div class="plat-icon-ig" style="width:44px;height:44px;border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 10px;">
                 <svg width="22" height="22" fill="none" stroke="#fff" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5" ry="5" stroke-width="2"/><path stroke-width="2" d="M16 11.37A4 4 0 1112.63 8 4 4 0 0116 11.37z"/><line stroke-width="2" x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
               </div>
-              <div style="font-weight:700;font-size:0.875rem;color:#1e293b;">Instagram</div>
+              <div style="font-weight:700;font-size:0.875rem;color:#e2e8f0;">Instagram</div>
               <div class="plat-check-indicator" style="margin-top:6px;font-size:0.75rem;color:#e1306c;font-weight:600;">✓ Selected</div>
             </div>
             <div class="plat-card" data-platform="linkedin" data-selected="0" onclick="togglePlatCard(this,'manual')">
@@ -447,7 +465,7 @@
               <div class="plat-icon-li" style="width:44px;height:44px;border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 10px;">
                 <svg width="22" height="22" fill="none" stroke="#fff" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-2-2 2 2 0 00-2 2v7h-4v-7a6 6 0 016-6z"/><rect stroke-width="2" x="2" y="9" width="4" height="12"/><circle stroke-width="2" cx="4" cy="4" r="2"/></svg>
               </div>
-              <div style="font-weight:700;font-size:0.875rem;color:#1e293b;">LinkedIn</div>
+              <div style="font-weight:700;font-size:0.875rem;color:#e2e8f0;">LinkedIn</div>
               <div class="plat-check-indicator" style="margin-top:6px;font-size:0.75rem;color:#94a3b8;font-weight:500;">+ Select</div>
             </div>
             <div class="plat-card" data-platform="facebook" data-selected="0" onclick="togglePlatCard(this,'manual')">
@@ -455,7 +473,7 @@
               <div class="plat-icon-fb" style="width:44px;height:44px;border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 10px;">
                 <svg width="22" height="22" fill="#fff" viewBox="0 0 24 24"><path d="M18 2h-3a5 5 0 00-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 011-1h3z"/></svg>
               </div>
-              <div style="font-weight:700;font-size:0.875rem;color:#1e293b;">Facebook</div>
+              <div style="font-weight:700;font-size:0.875rem;color:#e2e8f0;">Facebook</div>
               <div class="plat-check-indicator" style="margin-top:6px;font-size:0.75rem;color:#94a3b8;font-weight:500;">+ Select</div>
             </div>
           </div>
@@ -476,7 +494,7 @@
           <select id="manual-tone" class="inp"><option value="">Auto-select</option></select>
         </div>
         <div style="margin-bottom:20px;">
-          <label class="lbl">Custom topic or angle <span style="color:#94a3b8;font-weight:400;">(optional — overrides topic above)</span></label>
+          <label class="lbl">Custom topic or angle <span style="color:#64748b;font-weight:400;">(optional — overrides topic above)</span></label>
           <input id="manual-custom-topic" class="inp" type="text" placeholder="e.g. Smart home for Melbourne rental properties, EOFY energy savings..." />
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:24px;">
@@ -497,7 +515,6 @@
           </div>
         </div>
 
-        <!-- AI Fiesta info banner (hidden unless aifiesta selected) -->
         <div id="manual-aifiesta-banner" style="display:none;background:linear-gradient(135deg,#0f172a,#1e1b4b);border-radius:12px;padding:14px 16px;margin-bottom:16px;border:1px solid #312e81;">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
             <span style="font-size:1.1rem;">🎪</span>
@@ -514,32 +531,29 @@
       </div>
     </div>
 
-    <!-- Loading -->
     <div id="gen-loading" style="display:none;">
       <div class="card" style="padding:48px 24px;text-align:center;">
-        <div style="width:56px;height:56px;border:4px solid #eef2ff;border-top-color:#6366f1;border-radius:50%;margin:0 auto 20px;animation:spin 0.8s linear infinite;"></div>
-        <div id="gen-loading-text" style="font-size:1rem;font-weight:700;color:#0f172a;margin-bottom:6px;">Generating your content...</div>
-        <div style="font-size:0.8125rem;color:#94a3b8;">This may take 30–60 seconds with Ollama. Hang tight!</div>
+        <div style="width:56px;height:56px;border:4px solid rgba(99,102,241,0.2);border-top-color:#6366f1;border-radius:50%;margin:0 auto 20px;animation:spin 0.8s linear infinite;"></div>
+        <div id="gen-loading-text" style="font-size:1rem;font-weight:700;color:#f1f5f9;margin-bottom:6px;">Generating your content...</div>
+        <div style="font-size:0.8125rem;color:#64748b;">This may take 30–60 seconds with Ollama. Hang tight!</div>
       </div>
     </div>
 
-    <!-- Results -->
     <div id="gen-results" style="display:none;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
-        <h3 style="font-size:1rem;font-weight:700;color:#0f172a;margin:0;">Generated Posts</h3>
-        <button class="btn-ghost" onclick="showPage('library')" style="color:#6366f1;font-weight:600;">View all in Library →</button>
+        <h3 style="font-size:1rem;font-weight:700;color:#f1f5f9;margin:0;">Generated Posts</h3>
+        <button class="btn-ghost" onclick="showPage('library')" style="color:#818cf8;font-weight:600;">View all in Library →</button>
       </div>
       <div id="gen-results-list" style="display:flex;flex-direction:column;gap:16px;"></div>
     </div>
   </div>
 
-  <!-- ── LIBRARY ── -->
   <div id="page-library" style="padding:32px 36px;max-width:1100px;width:100%;margin:0 auto;display:none;">
 
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;">
       <div>
-        <h1 style="font-size:1.625rem;font-weight:800;color:#0f172a;margin:0 0 5px;">Content Library</h1>
-        <p style="color:#94a3b8;font-size:0.875rem;margin:0;font-weight:500;">Review, edit, copy and mark your posts as posted.</p>
+        <h1 style="font-size:1.625rem;font-weight:800;color:#f1f5f9;margin:0 0 5px;">Content Library</h1>
+        <p style="color:#64748b;font-size:0.875rem;margin:0;font-weight:500;">Review, edit, copy and mark your posts as posted.</p>
       </div>
       <button class="btn-primary" onclick="showPage('generate')">
         <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"/></svg>
@@ -547,14 +561,13 @@
       </button>
     </div>
 
-    <!-- Filters -->
-    <div style="display:flex;align-items:center;gap:6px;margin-bottom:24px;flex-wrap:wrap;background:#fff;border-radius:14px;padding:8px 10px;border:1px solid #eef0f4;box-shadow:0 1px 4px rgba(0,0,0,0.04);">
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:24px;flex-wrap:wrap;background:rgba(15,23,42,0.5);border-radius:14px;padding:8px 10px;border:1px solid rgba(255,255,255,0.08);backdrop-filter:blur(8px);">
       <button class="filter-tab active" onclick="filterLibrary('','',this)">All</button>
-      <div style="width:1px;height:20px;background:#e5e7eb;margin:0 4px;"></div>
+      <div style="width:1px;height:20px;background:rgba(255,255,255,0.1);margin:0 4px;"></div>
       <button class="filter-tab" onclick="filterLibrary('platform','instagram',this)">📷 Instagram</button>
       <button class="filter-tab" onclick="filterLibrary('platform','linkedin',this)">💼 LinkedIn</button>
       <button class="filter-tab" onclick="filterLibrary('platform','facebook',this)">👥 Facebook</button>
-      <div style="width:1px;height:20px;background:#e5e7eb;margin:0 4px;"></div>
+      <div style="width:1px;height:20px;background:rgba(255,255,255,0.1);margin:0 4px;"></div>
       <button class="filter-tab" onclick="filterLibrary('status','draft',this)">Draft</button>
       <button class="filter-tab" onclick="filterLibrary('status','approved',this)">Approved</button>
       <button class="filter-tab" onclick="filterLibrary('status','posted',this)">Posted</button>
@@ -563,20 +576,18 @@
     <div id="library-grid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:18px;"></div>
   </div>
 
-  <!-- ── SETTINGS ── -->
   <div id="page-settings" style="padding:32px 36px;max-width:700px;width:100%;margin:0 auto;display:none;">
     <div style="margin-bottom:28px;">
-      <h1 style="font-size:1.625rem;font-weight:800;color:#0f172a;margin:0 0 5px;">Settings</h1>
-      <p style="color:#94a3b8;font-size:0.875rem;margin:0;font-weight:500;">Configure AI models and social media credentials for NestPost.</p>
+      <h1 style="font-size:1.625rem;font-weight:800;color:#f1f5f9;margin:0 0 5px;">Settings</h1>
+      <p style="color:#64748b;font-size:0.875rem;margin:0;font-weight:500;">Configure AI models and social media credentials for NestPost.</p>
     </div>
 
-    <!-- General -->
     <div class="settings-section">
       <div class="settings-header">
-        <h2 style="font-size:0.9375rem;font-weight:700;color:#0f172a;margin:0 0 2px;">General</h2>
-        <p style="font-size:0.8125rem;color:#94a3b8;margin:0 0 18px;">Ollama server URL and default AI preferences.</p>
+        <h2 style="font-size:0.9375rem;font-weight:700;color:#f1f5f9;margin:0 0 2px;">General</h2>
+        <p style="font-size:0.8125rem;color:#64748b;margin:0 0 18px;">Ollama server URL and default AI preferences.</p>
       </div>
-      <div class="settings-body" style="border-top:1px solid #f1f5f9;">
+      <div class="settings-body" style="border-top:1px solid rgba(255,255,255,0.06);">
         <div style="margin-bottom:14px;">
           <label class="lbl">Ollama URL</label>
           <input id="s-ollama-url" class="inp" type="text" placeholder="http://localhost:11434" />
@@ -600,20 +611,19 @@
       </div>
     </div>
 
-    <!-- AI APIs -->
     <div class="settings-section">
       <div class="settings-header">
-        <h2 style="font-size:0.9375rem;font-weight:700;color:#0f172a;margin:0 0 2px;">AI API Keys</h2>
-        <p style="font-size:0.8125rem;color:#94a3b8;margin:0 0 18px;">All keys are encrypted and stored locally. Leave blank to keep existing.</p>
+        <h2 style="font-size:0.9375rem;font-weight:700;color:#f1f5f9;margin:0 0 2px;">AI API Keys</h2>
+        <p style="font-size:0.8125rem;color:#64748b;margin:0 0 18px;">All keys are encrypted and stored locally. Leave blank to keep existing.</p>
       </div>
-      <div class="settings-body" style="border-top:1px solid #f1f5f9;">
+      <div class="settings-body" style="border-top:1px solid rgba(255,255,255,0.06);">
         <div style="display:flex;flex-direction:column;gap:12px;">
           <div>
-            <label class="lbl">Groq API Key <span style="color:#10b981;font-weight:600;font-size:0.7rem;background:#ecfdf5;padding:2px 7px;border-radius:99px;margin-left:4px;">Free tier available</span></label>
+            <label class="lbl">Groq API Key <span style="color:#2dd4bf;font-weight:600;font-size:0.7rem;background:rgba(45,212,191,0.12);padding:2px 7px;border-radius:99px;margin-left:4px;">Free tier available</span></label>
             <input id="s-groq-api-key" class="inp" type="password" placeholder="gsk_..." />
           </div>
           <div>
-            <label class="lbl">Gemini API Key <span style="color:#10b981;font-weight:600;font-size:0.7rem;background:#ecfdf5;padding:2px 7px;border-radius:99px;margin-left:4px;">Free tier available</span></label>
+            <label class="lbl">Gemini API Key <span style="color:#2dd4bf;font-weight:600;font-size:0.7rem;background:rgba(45,212,191,0.12);padding:2px 7px;border-radius:99px;margin-left:4px;">Free tier available</span></label>
             <input id="s-gemini-api-key" class="inp" type="password" placeholder="AIza..." />
           </div>
           <div>
@@ -628,13 +638,12 @@
       </div>
     </div>
 
-    <!-- Image Generation APIs -->
     <div class="settings-section">
       <div class="settings-header">
-        <h2 style="font-size:0.9375rem;font-weight:700;color:#0f172a;margin:0 0 2px;">Image Generation</h2>
-        <p style="font-size:0.8125rem;color:#94a3b8;margin:0 0 18px;">API keys for AI image generation. Gemini key (above) also works for Imagen 4 and Nano Banana free tier.</p>
+        <h2 style="font-size:0.9375rem;font-weight:700;color:#f1f5f9;margin:0 0 2px;">Image Generation</h2>
+        <p style="font-size:0.8125rem;color:#64748b;margin:0 0 18px;">API keys for AI image generation. Gemini key (above) also works for Imagen 4 and Nano Banana free tier.</p>
       </div>
-      <div class="settings-body" style="border-top:1px solid #f1f5f9;">
+      <div class="settings-body" style="border-top:1px solid rgba(255,255,255,0.06);">
         <div style="display:flex;flex-direction:column;gap:12px;">
           <div>
             <label class="lbl">Default Image Provider</label>
@@ -648,7 +657,7 @@
             </select>
           </div>
           <div>
-            <label class="lbl">Gemini Paid API Key (Nano Banana 2) <span style="color:#f59e0b;font-weight:600;font-size:0.7rem;background:#fffbeb;padding:2px 7px;border-radius:99px;margin-left:4px;">Paid tier</span></label>
+            <label class="lbl">Gemini Paid API Key (Nano Banana 2) <span style="color:#fbbf24;font-weight:600;font-size:0.7rem;background:rgba(251,191,36,0.12);padding:2px 7px;border-radius:99px;margin-left:4px;">Paid tier</span></label>
             <input id="s-gemini-paid-api-key" class="inp" type="password" placeholder="AIza... (leave blank to use free Gemini key)" />
           </div>
           <div>
@@ -663,16 +672,15 @@
       </div>
     </div>
 
-    <!-- LinkedIn -->
     <div class="settings-section">
       <div class="settings-header">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;">
-          <h2 style="font-size:0.9375rem;font-weight:700;color:#0f172a;margin:0;">LinkedIn Auto-Post</h2>
-          <span style="font-size:0.72rem;font-weight:700;background:#fef9ec;color:#92400e;border:1px solid #fde68a;padding:3px 10px;border-radius:99px;">Phase 2 — Coming Soon</span>
+          <h2 style="font-size:0.9375rem;font-weight:700;color:#f1f5f9;margin:0;">LinkedIn Auto-Post</h2>
+          <span style="font-size:0.72rem;font-weight:700;background:rgba(251,191,36,0.12);color:#fbbf24;border:1px solid rgba(251,191,36,0.25);padding:3px 10px;border-radius:99px;">Phase 2 — Coming Soon</span>
         </div>
-        <p style="font-size:0.8125rem;color:#94a3b8;margin:0 0 18px;">Add credentials now — posting activates when Phase 2 ships. All values encrypted.</p>
+        <p style="font-size:0.8125rem;color:#64748b;margin:0 0 18px;">Add credentials now — posting activates when Phase 2 ships. All values encrypted.</p>
       </div>
-      <div class="settings-body" style="border-top:1px solid #f1f5f9;">
+      <div class="settings-body" style="border-top:1px solid rgba(255,255,255,0.06);">
         <div style="display:flex;flex-direction:column;gap:12px;">
           <div><label class="lbl">Client ID</label><input id="s-linkedin-client-id" class="inp" type="password" placeholder="LinkedIn App Client ID" /></div>
           <div><label class="lbl">Client Secret</label><input id="s-linkedin-client-secret" class="inp" type="password" placeholder="LinkedIn App Client Secret" /></div>
@@ -681,16 +689,15 @@
       </div>
     </div>
 
-    <!-- Facebook -->
     <div class="settings-section">
       <div class="settings-header">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;">
-          <h2 style="font-size:0.9375rem;font-weight:700;color:#0f172a;margin:0;">Facebook / Meta Auto-Post</h2>
-          <span style="font-size:0.72rem;font-weight:700;background:#fef9ec;color:#92400e;border:1px solid #fde68a;padding:3px 10px;border-radius:99px;">Phase 2 — Coming Soon</span>
+          <h2 style="font-size:0.9375rem;font-weight:700;color:#f1f5f9;margin:0;">Facebook / Meta Auto-Post</h2>
+          <span style="font-size:0.72rem;font-weight:700;background:rgba(251,191,36,0.12);color:#fbbf24;border:1px solid rgba(251,191,36,0.25);padding:3px 10px;border-radius:99px;">Phase 2 — Coming Soon</span>
         </div>
-        <p style="font-size:0.8125rem;color:#94a3b8;margin:0 0 18px;">Add credentials now — posting activates when Phase 2 ships. All values encrypted.</p>
+        <p style="font-size:0.8125rem;color:#64748b;margin:0 0 18px;">Add credentials now — posting activates when Phase 2 ships. All values encrypted.</p>
       </div>
-      <div class="settings-body" style="border-top:1px solid #f1f5f9;">
+      <div class="settings-body" style="border-top:1px solid rgba(255,255,255,0.06);">
         <div style="display:flex;flex-direction:column;gap:12px;">
           <div><label class="lbl">Page ID</label><input id="s-facebook-page-id" class="inp" type="password" placeholder="Facebook Page ID" /></div>
           <div><label class="lbl">Page Access Token</label><input id="s-facebook-access-token" class="inp" type="password" placeholder="Facebook Page Access Token" /></div>
@@ -706,23 +713,20 @@
 
 </main>
 
-<!-- ══════════ MODAL ══════════ -->
-<div id="modal" style="display:none;position:fixed;inset:0;z-index:50;background:rgba(15,23,42,0.55);backdrop-filter:blur(4px);align-items:center;justify-content:center;padding:20px;" onclick="handleModalBackdrop(event)">
-  <div style="background:#fff;border-radius:22px;width:100%;max-width:680px;max-height:92vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 25px 60px rgba(0,0,0,0.2);" onclick="event.stopPropagation()">
+<div id="modal" style="display:none;position:fixed;inset:0;z-index:50;background:rgba(3,7,18,0.7);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);align-items:center;justify-content:center;padding:20px;" onclick="handleModalBackdrop(event)">
+  <div class="modal-card" style="background:rgba(15,23,42,0.85);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,0.1);border-radius:22px;width:100%;max-width:680px;max-height:92vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 25px 60px rgba(0,0,0,0.5);" onclick="event.stopPropagation()">
 
-    <!-- Modal Header -->
-    <div style="padding:20px 24px 18px;border-bottom:1px solid #f1f5f9;display:flex;align-items:flex-start;justify-content:space-between;flex-shrink:0;">
+    <div style="padding:20px 24px 18px;border-bottom:1px solid rgba(255,255,255,0.06);display:flex;align-items:flex-start;justify-content:space-between;flex-shrink:0;">
       <div style="flex:1;min-width:0;">
         <div id="modal-platform-badge" style="margin-bottom:8px;"></div>
-        <h3 id="modal-topic" style="font-size:1.125rem;font-weight:800;color:#0f172a;margin:0 0 3px;"></h3>
-        <div id="modal-type" style="font-size:0.78rem;color:#94a3b8;font-weight:500;"></div>
+        <h3 id="modal-topic" style="font-size:1.125rem;font-weight:800;color:#f1f5f9;margin:0 0 3px;"></h3>
+        <div id="modal-type" style="font-size:0.78rem;color:#64748b;font-weight:500;"></div>
       </div>
       <button class="btn-ghost" onclick="closeModal()" style="flex-shrink:0;margin-left:12px;">
         <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/></svg>
       </button>
     </div>
 
-    <!-- Modal Body -->
     <div style="flex:1;overflow-y:auto;padding:22px 24px;">
       <div style="margin-bottom:18px;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
@@ -736,39 +740,36 @@
           <label class="lbl" style="margin:0;">Hashtags</label>
           <button class="btn-ghost" onclick="copyField('modal-hashtags-text')" style="font-size:0.75rem;">📋 Copy</button>
         </div>
-        <textarea id="modal-hashtags-text" class="inp" style="height:72px;resize:vertical;font-size:0.8125rem;color:#6366f1;" oninput="markModalDirty()"></textarea>
+        <textarea id="modal-hashtags-text" class="inp" style="height:72px;resize:vertical;font-size:0.8125rem;color:#a5b4fc;" oninput="markModalDirty()"></textarea>
       </div>
       <div style="margin-bottom:18px;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
           <label class="lbl" style="margin:0;">Full Post (copy-ready)</label>
-          <button class="btn-ghost" onclick="copyFullPost()" style="font-size:0.75rem;color:#6366f1;font-weight:700;">📋 Copy All</button>
+          <button class="btn-ghost" onclick="copyFullPost()" style="font-size:0.75rem;color:#818cf8;font-weight:700;">📋 Copy All</button>
         </div>
-        <div id="modal-full-preview" style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:14px;font-size:0.8125rem;color:#374151;white-space:pre-wrap;line-height:1.6;max-height:140px;overflow-y:auto;"></div>
+        <div id="modal-full-preview" style="background:rgba(15,23,42,0.6);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:14px;font-size:0.8125rem;color:#cbd5e1;white-space:pre-wrap;line-height:1.6;max-height:140px;overflow-y:auto;"></div>
       </div>
       <div>
         <label class="lbl">📸 Image / Visual Suggestion</label>
-        <div id="modal-image-suggestion" style="background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding:14px;font-size:0.8125rem;color:#92400e;line-height:1.5;font-style:italic;"></div>
+        <div id="modal-image-suggestion" style="background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.2);border-radius:12px;padding:14px;font-size:0.8125rem;color:#fbbf24;line-height:1.5;font-style:italic;"></div>
       </div>
 
-      <!-- ── Image Generation Section ── -->
-      <div style="margin-top:20px;border-top:2px solid #eef2ff;padding-top:20px;">
+      <div style="margin-top:20px;border-top:2px solid rgba(99,102,241,0.15);padding-top:20px;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
           <div style="display:flex;align-items:center;gap:8px;">
             <div style="width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#6366f1,#a855f7);display:flex;align-items:center;justify-content:center;">
               <svg width="14" height="14" fill="none" stroke="#fff" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
             </div>
-            <h4 style="font-size:0.9375rem;font-weight:700;color:#0f172a;margin:0;">AI Image Generation</h4>
+            <h4 style="font-size:0.9375rem;font-weight:700;color:#f1f5f9;margin:0;">AI Image Generation</h4>
           </div>
-          <button class="btn-ghost" id="modal-refine-btn" onclick="refineImagePrompt()" style="font-size:0.75rem;color:#6366f1;font-weight:600;">✨ Auto-refine prompt</button>
+          <button class="btn-ghost" id="modal-refine-btn" onclick="refineImagePrompt()" style="font-size:0.75rem;color:#818cf8;font-weight:600;">✨ Auto-refine prompt</button>
         </div>
 
-        <!-- Image prompt (editable) -->
         <div style="margin-bottom:12px;">
-          <label class="lbl">Image Prompt <span style="color:#94a3b8;font-weight:400;">(edit before generating)</span></label>
+          <label class="lbl">Image Prompt <span style="color:#64748b;font-weight:400;">(edit before generating)</span></label>
           <textarea id="modal-image-prompt" class="inp" style="height:80px;resize:vertical;font-size:0.8125rem;line-height:1.5;" placeholder="Click 'Auto-refine prompt' to generate a detailed prompt from the image suggestion above, or write your own..."></textarea>
         </div>
 
-        <!-- Model picker + aspect ratio (side by side) -->
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
           <div>
             <label class="lbl">Image Model</label>
@@ -793,53 +794,47 @@
           </div>
         </div>
 
-        <!-- Model info line -->
-        <div id="modal-image-model-info" style="font-size:0.72rem;color:#94a3b8;margin-bottom:14px;display:flex;align-items:center;gap:6px;">
-          <span style="width:6px;height:6px;border-radius:50%;background:#10b981;display:inline-block;"></span>
+        <div id="modal-image-model-info" style="font-size:0.72rem;color:#64748b;margin-bottom:14px;display:flex;align-items:center;gap:6px;">
+          <span style="width:6px;height:6px;border-radius:50%;background:#2dd4bf;display:inline-block;"></span>
           Uses your Gemini API key — up to 4 images per generation
         </div>
 
-        <!-- Generate button -->
         <button class="btn-primary" id="modal-gen-image-btn" onclick="generateImages()" style="width:100%;justify-content:center;padding:11px;margin-bottom:14px;">
           <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
           Generate Images
         </button>
 
-        <!-- Image loading spinner -->
         <div id="modal-image-loading" style="display:none;text-align:center;padding:32px 0;">
-          <div style="width:40px;height:40px;border:3px solid #eef2ff;border-top-color:#6366f1;border-radius:50%;margin:0 auto 12px;animation:spin 0.8s linear infinite;"></div>
-          <div style="font-size:0.8125rem;font-weight:600;color:#0f172a;">Generating images...</div>
-          <div style="font-size:0.75rem;color:#94a3b8;margin-top:4px;">This may take 10–30 seconds</div>
+          <div style="width:40px;height:40px;border:3px solid rgba(99,102,241,0.2);border-top-color:#6366f1;border-radius:50%;margin:0 auto 12px;animation:spin 0.8s linear infinite;"></div>
+          <div style="font-size:0.8125rem;font-weight:600;color:#f1f5f9;">Generating images...</div>
+          <div style="font-size:0.75rem;color:#64748b;margin-top:4px;">This may take 10–30 seconds</div>
         </div>
 
-        <!-- Image results grid (selectable) -->
         <div id="modal-image-results" style="display:none;">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
             <label class="lbl" style="margin:0;">Select your preferred image</label>
-            <button class="btn-ghost" onclick="regenerateImages()" style="font-size:0.75rem;color:#6366f1;font-weight:600;">🔄 Regenerate</button>
+            <button class="btn-ghost" onclick="regenerateImages()" style="font-size:0.75rem;color:#818cf8;font-weight:600;">🔄 Regenerate</button>
           </div>
           <div id="modal-image-grid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:12px;"></div>
         </div>
 
-        <!-- Currently saved image -->
         <div id="modal-saved-image" style="display:none;margin-top:14px;">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
             <label class="lbl" style="margin:0;">Current Image</label>
             <button class="btn-ghost btn-danger-ghost" onclick="removeImage()" style="font-size:0.75rem;">Remove image</button>
           </div>
-          <img id="modal-saved-image-preview" style="width:100%;border-radius:12px;border:1px solid #e5e7eb;" />
+          <img id="modal-saved-image-preview" style="width:100%;border-radius:12px;border:1px solid rgba(255,255,255,0.08);" />
         </div>
       </div>
     </div>
 
-    <!-- Modal Footer -->
-    <div style="padding:16px 24px;border-top:1px solid #f1f5f9;display:flex;align-items:center;gap:10px;flex-shrink:0;background:#fafbfc;border-radius:0 0 22px 22px;">
+    <div style="padding:16px 24px;border-top:1px solid rgba(255,255,255,0.06);display:flex;align-items:center;gap:10px;flex-shrink:0;background:rgba(11,17,32,0.6);border-radius:0 0 22px 22px;">
       <button class="btn-primary" id="modal-approve-btn" onclick="approveItem()">
         <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
         Approve
       </button>
       <button class="btn-secondary" id="modal-save-btn" onclick="saveModal()" style="display:none;">Save Changes</button>
-      <button class="btn-ghost" onclick="markPosted()" style="color:#059669;font-weight:600;">
+      <button class="btn-ghost" onclick="markPosted()" style="color:#2dd4bf;font-weight:600;">
         <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
         Mark Posted
       </button>
@@ -852,7 +847,6 @@
   </div>
 </div>
 
-<!-- ══════════ TOASTS ══════════ -->
 <div id="toast-container" style="position:fixed;bottom:24px;right:24px;z-index:100;display:flex;flex-direction:column;gap:10px;pointer-events:none;"></div>
 
 <script src="/static/app.js"></script>
