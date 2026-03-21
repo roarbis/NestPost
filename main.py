@@ -40,7 +40,7 @@ app.add_middleware(
 
 # ── Auth Middleware ───────────────────────────────────────────────────────────
 # Public paths that don't require authentication
-PUBLIC_PATHS = {"/api/login", "/api/setup", "/api/auth-status", "/api/reset-password-temp", "/login", "/setup"}
+PUBLIC_PATHS = {"/api/login", "/api/setup", "/api/auth-status", "/login", "/setup"}
 PUBLIC_PREFIXES = ("/static/",)
 
 
@@ -112,13 +112,6 @@ async def setup(req: LoginRequest):
         key="session", value=token, httponly=True, samesite="lax", max_age=86400 * 30,
     )
     return response
-
-
-@app.post("/api/reset-password-temp")
-async def reset_password_temp(req: LoginRequest):
-    """Temporary endpoint to reset password. REMOVE after use."""
-    set_admin_password(req.password)
-    return {"ok": True, "message": "Password reset"}
 
 
 @app.post("/api/login")
