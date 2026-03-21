@@ -38,7 +38,7 @@ initTheme();
 
 document.addEventListener('DOMContentLoaded', async () => {
   setGreeting();
-  await Promise.all([loadHealth(), loadStats(), loadSuggestions(), loadModels(), loadSettings(), loadCurrentUser()]);
+  await Promise.all([loadHealth(), loadStats(), loadSuggestions(), loadModels(), loadSettings(), loadCurrentUser(), loadBrandLogo()]);
   loadRecentContent();
 });
 
@@ -659,6 +659,63 @@ async function saveSettings() {
     showToast('Settings saved', 'success');
     loadHealth(); loadModels();
   } catch (err) { showToast(err.message, 'error'); }
+}
+
+// ── Brand Logo Management ─────────────────────────────────────────────────
+async function loadBrandLogo() {
+  try {
+    const data = await api('/api/brand-logo');
+    const img = document.getElementById('logo-preview-img');
+    const empty = document.getElementById('logo-preview-empty');
+    const removeBtn = document.getElementById('logo-remove-btn');
+    const statusText = document.getElementById('logo-status-text');
+    if (data.has_logo) {
+      img.src = '/api/brand-logo/image?t=' + Date.now();
+      img.style.display = '';
+      empty.style.display = 'none';
+      removeBtn.style.display = '';
+      statusText.textContent = 'Logo active — will be overlaid on all saved images.';
+    } else {
+      img.style.display = 'none';
+      empty.style.display = '';
+      removeBtn.style.display = 'none';
+      statusText.textContent = 'No logo uploaded. Images will be saved without a watermark.';
+    }
+  } catch { /* silent */ }
+}
+
+async function handleLogoUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  if (file.size > 2 * 1024 * 1024) {
+    showToast('Logo file must be under 2MB', 'error');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = async () => {
+    const base64 = reader.result.split(',')[1];
+    const mime = file.type || 'image/png';
+    try {
+      await api('/api/brand-logo', 'POST', { image_base64: base64, mime_type: mime });
+      showToast('Brand logo uploaded — it will appear on all future saved images', 'success');
+      loadBrandLogo();
+    } catch (err) {
+      showToast('Failed to upload logo: ' + err.message, 'error');
+    }
+  };
+  reader.readAsDataURL(file);
+  event.target.value = '';
+}
+
+async function removeBrandLogo() {
+  if (!confirm('Remove brand logo? Future images will be saved without a watermark.')) return;
+  try {
+    await api('/api/brand-logo', 'DELETE');
+    showToast('Brand logo removed', 'success');
+    loadBrandLogo();
+  } catch (err) {
+    showToast('Failed to remove logo: ' + err.message, 'error');
+  }
 }
 
 function setGenerating(on, btnId) {

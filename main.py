@@ -28,7 +28,7 @@ import time
 from knowledge_base import TOPIC_TEMPLATES, CONTENT_TYPES, TONES, pick_next_topic
 from ai_client import generate_post, get_ollama_models, check_ollama_health
 from image_client import (
-    generate_images, refine_image_prompt,
+    generate_images, refine_image_prompt, overlay_logo,
     IMAGE_PROVIDERS, ASPECT_RATIOS,
 )
 
@@ -815,18 +815,37 @@ class SaveImageRequest(BaseModel):
 
 @app.post("/api/save-image")
 async def save_image(req: SaveImageRequest):
-    """Save a selected image to the database and link it to a content item."""
+    """Save a selected image to the database and link it to a content item.
+    Automatically overlays the brand logo if one is configured."""
     conn = get_conn()
     row = conn.execute(f"SELECT {CONTENT_COLS} FROM content WHERE id = ?", (req.content_id,)).fetchone()
     if not row:
         conn.close()
         raise HTTPException(status_code=404, detail="Content not found")
 
+    final_b64 = req.image_base64
+    final_mime = req.mime_type
+
+    # Apply brand logo overlay if available
+    logo_b64 = get_setting("brand_logo_b64", "")
+    if logo_b64:
+        logo_mime = get_setting("brand_logo_mime", "image/png")
+        try:
+            final_b64, final_mime = overlay_logo(
+                image_b64=req.image_base64,
+                logo_b64=logo_b64,
+                image_mime=req.mime_type,
+                logo_mime=logo_mime,
+            )
+        except Exception as e:
+            # If overlay fails, save without logo rather than failing entirely
+            print(f"Logo overlay failed (saving without): {e}")
+
     # Store image as base64 in DB (survives Render redeploys)
     image_path = f"/api/content/{req.content_id}/image-file"
     conn.execute(
         "UPDATE content SET image_path = ?, image_prompt = ?, image_data = ?, image_mime = ? WHERE id = ?",
-        (image_path, req.image_prompt, req.image_base64, req.mime_type, req.content_id),
+        (image_path, req.image_prompt, final_b64, final_mime, req.content_id),
     )
     conn.commit()
 
@@ -863,6 +882,50 @@ async def delete_image(item_id: int):
     )
     conn.commit()
     conn.close()
+    return {"deleted": True}
+
+
+# ── Brand Logo ────────────────────────────────────────────────────────────────
+
+@app.get("/api/brand-logo")
+async def get_brand_logo():
+    """Get the brand logo status (whether one is configured)."""
+    logo_b64 = get_setting("brand_logo_b64", "")
+    return {"has_logo": bool(logo_b64), "mime": get_setting("brand_logo_mime", "image/png") if logo_b64 else None}
+
+
+@app.get("/api/brand-logo/image")
+async def serve_brand_logo():
+    """Serve the brand logo image."""
+    logo_b64 = get_setting("brand_logo_b64", "")
+    if not logo_b64:
+        raise HTTPException(status_code=404, detail="No brand logo configured")
+    mime = get_setting("brand_logo_mime", "image/png")
+    return Response(
+        content=base64.b64decode(logo_b64),
+        media_type=mime,
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+class UploadLogoRequest(BaseModel):
+    image_base64: str
+    mime_type: str = "image/png"
+
+
+@app.post("/api/brand-logo")
+async def upload_brand_logo(req: UploadLogoRequest):
+    """Upload a new brand logo (masteradmin only)."""
+    set_setting("brand_logo_b64", req.image_base64)
+    set_setting("brand_logo_mime", req.mime_type)
+    return {"saved": True}
+
+
+@app.delete("/api/brand-logo")
+async def delete_brand_logo():
+    """Remove the brand logo (disables overlay)."""
+    set_setting("brand_logo_b64", "")
+    set_setting("brand_logo_mime", "")
     return {"deleted": True}
 
 

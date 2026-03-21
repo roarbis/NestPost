@@ -2,6 +2,7 @@ import sqlite3
 import hashlib
 import secrets
 import os
+import base64
 from typing import Any
 from pathlib import Path
 
@@ -85,6 +86,9 @@ def init_db():
             (key, value, enc),
         )
 
+    # Seed brand logo if not already set
+    _seed_brand_logo(c)
+
     c.execute("""
         CREATE TABLE IF NOT EXISTS sessions (
             token TEXT PRIMARY KEY,
@@ -116,6 +120,33 @@ def init_db():
 
     conn.commit()
     conn.close()
+
+
+def _seed_brand_logo(cursor):
+    """Seed the brand logo from the bundled file if not already in settings."""
+    row = cursor.execute(
+        "SELECT value FROM settings WHERE key = 'brand_logo_b64'"
+    ).fetchone()
+    if row:
+        val = row[0] if isinstance(row, (list, tuple)) else row.get("value", "")
+        if val:
+            return  # already seeded
+
+    logo_path = Path(__file__).parent / "Logo - No BG.png"
+    if not logo_path.exists():
+        return
+
+    with open(logo_path, "rb") as f:
+        logo_b64 = base64.b64encode(f.read()).decode("utf-8")
+
+    cursor.execute(
+        "INSERT OR REPLACE INTO settings (key, value, is_encrypted) VALUES (?, ?, 0)",
+        ("brand_logo_b64", logo_b64),
+    )
+    cursor.execute(
+        "INSERT OR REPLACE INTO settings (key, value, is_encrypted) VALUES (?, ?, 0)",
+        ("brand_logo_mime", "image/png"),
+    )
 
 
 def _seed_default_users(cursor):

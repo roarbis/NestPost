@@ -2,6 +2,8 @@ import httpx
 import base64
 import json
 import re
+import io
+from PIL import Image
 
 # ── Image Generation Providers ─────────────────────────────────────────────────
 
@@ -62,18 +64,31 @@ async def refine_image_prompt(
 ) -> str:
     """Use Gemini text to refine an image_suggestion into a detailed image gen prompt."""
     system = (
-        "You are an expert at writing image generation prompts. "
+        "You are an expert commercial photographer and image prompt engineer. "
         "Given a social media post caption and a rough image suggestion, "
-        "create a detailed, specific image generation prompt that would produce "
-        "a professional, brand-appropriate image for a smart home automation company "
-        "(ConnectNest, Melbourne, Australia).\n\n"
-        "Rules:\n"
-        "- Be specific about style: modern, clean, bright, professional photography\n"
-        "- Include lighting, composition, and mood details\n"
-        "- Mention specific objects, colors, and settings\n"
-        "- Keep the prompt under 200 words\n"
-        "- Do NOT include text/words in the image — social media text goes in the caption\n"
-        "- Avoid people's faces (use back views, hands, or empty rooms)\n"
+        "create a highly detailed, specific image generation prompt that produces "
+        "a stunning, professional image for ConnectNest — a premium smart home "
+        "automation company based in Melbourne, Australia.\n\n"
+        "STYLE REQUIREMENTS — always include:\n"
+        "- Photography style: hyper-realistic, ultra-detailed, 8K resolution\n"
+        "- Camera/lens: specify appropriate lens (e.g. 35mm wide-angle for rooms, "
+        "85mm portrait lens for close-ups, macro lens for device details)\n"
+        "- Lighting: be specific (soft natural window light, golden hour warmth, "
+        "cool LED ambient glow, studio rim lighting, etc.)\n"
+        "- Composition: specify shot type — close-up, medium shot, wide establishing "
+        "shot, overhead flat-lay, low-angle hero shot, or eye-level lifestyle\n"
+        "- Depth of field: shallow bokeh for product focus, deep for room scenes\n"
+        "- Mood & color palette: modern, premium feel with teal/emerald accents, "
+        "warm wood tones, clean whites, matte black smart devices\n"
+        "- Setting context: contemporary Australian home, Melbourne-style architecture, "
+        "minimalist interior design, natural materials\n\n"
+        "RULES:\n"
+        "- Be vivid and specific about every visual element — leave nothing to imagination\n"
+        "- Describe textures, materials, reflections, and surface finishes\n"
+        "- Include atmosphere details (morning mist, evening ambience, rain on windows)\n"
+        "- Keep the prompt under 250 words\n"
+        "- Do NOT include any text, words, logos, or watermarks in the image\n"
+        "- Avoid people's faces (use back views, hands, silhouettes, or empty rooms)\n"
         "- Return ONLY the prompt text, nothing else"
     )
 
@@ -299,3 +314,54 @@ async def generate_images(
 
     else:
         raise ValueError(f"Unknown image provider: {provider}")
+
+
+def overlay_logo(image_b64: str, logo_b64: str, image_mime: str = "image/png",
+                 logo_mime: str = "image/png", logo_scale: float = 0.12,
+                 padding_pct: float = 0.03, opacity: float = 0.85) -> tuple[str, str]:
+    """Overlay a logo on the bottom-right corner of an image.
+
+    Args:
+        image_b64: Base64 encoded image data
+        logo_b64: Base64 encoded logo data (should have transparent background)
+        image_mime: MIME type of the source image
+        logo_mime: MIME type of the logo
+        logo_scale: Logo width as fraction of image width (default 12%)
+        padding_pct: Padding from edge as fraction of image width (default 3%)
+        opacity: Logo opacity 0.0-1.0 (default 0.85)
+
+    Returns:
+        Tuple of (base64_result, mime_type)
+    """
+    # Decode images
+    img = Image.open(io.BytesIO(base64.b64decode(image_b64))).convert("RGBA")
+    logo = Image.open(io.BytesIO(base64.b64decode(logo_b64))).convert("RGBA")
+
+    # Scale logo relative to image width
+    logo_w = int(img.width * logo_scale)
+    logo_h = int(logo.height * (logo_w / logo.width))
+    logo = logo.resize((logo_w, logo_h), Image.LANCZOS)
+
+    # Apply opacity
+    if opacity < 1.0:
+        alpha = logo.getchannel("A")
+        alpha = alpha.point(lambda a: int(a * opacity))
+        logo.putalpha(alpha)
+
+    # Position: bottom-right with padding
+    pad = int(img.width * padding_pct)
+    x = img.width - logo_w - pad
+    y = img.height - logo_h - pad
+
+    # Composite
+    img.paste(logo, (x, y), logo)
+
+    # Convert back to original format
+    output = io.BytesIO()
+    out_format = "PNG" if "png" in image_mime.lower() else "JPEG"
+    if out_format == "JPEG":
+        img = img.convert("RGB")
+    img.save(output, format=out_format, quality=95)
+    result_b64 = base64.b64encode(output.getvalue()).decode("utf-8")
+    result_mime = f"image/{out_format.lower()}"
+    return result_b64, result_mime
