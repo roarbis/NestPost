@@ -1,6 +1,7 @@
 import httpx
 import asyncio
 import json
+import re
 import os
 import time
 import logging
@@ -128,7 +129,7 @@ async def generate_video_prompts(
     url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
     payload = {
         "contents": [{"parts": [{"text": f"{system}\n\n{user_prompt}"}]}],
-        "generationConfig": {"temperature": 0.8, "maxOutputTokens": 1000},
+        "generationConfig": {"temperature": 0.8, "maxOutputTokens": 2048},
     }
 
     async with httpx.AsyncClient(timeout=30.0) as client:
@@ -139,10 +140,9 @@ async def generate_video_prompts(
     # Parse JSON from response (strip markdown fences if present)
     text = text.strip()
     if text.startswith("```"):
-        text = text.split("\n", 1)[1] if "\n" in text else text[3:]
-        if text.endswith("```"):
-            text = text[:-3]
-        text = text.strip()
+        # strip ```json or ``` opener
+        text = re.sub(r"^```[a-z]*\n?", "", text)
+        text = re.sub(r"```$", "", text).strip()
 
     prompts = json.loads(text)
     return prompts
