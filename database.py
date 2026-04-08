@@ -53,6 +53,24 @@ def init_db():
     except Exception:
         pass
 
+    # Migration: add video columns
+    try:
+        c.execute("ALTER TABLE content ADD COLUMN video_path TEXT")
+    except Exception:
+        pass
+    try:
+        c.execute("ALTER TABLE content ADD COLUMN video_prompt TEXT")
+    except Exception:
+        pass
+    try:
+        c.execute("ALTER TABLE content ADD COLUMN video_data BLOB")
+    except Exception:
+        pass
+    try:
+        c.execute("ALTER TABLE content ADD COLUMN video_mime TEXT DEFAULT 'video/mp4'")
+    except Exception:
+        pass
+
     # Performance indexes
     try:
         c.execute("CREATE INDEX IF NOT EXISTS idx_content_platform ON content(platform)")
@@ -79,6 +97,7 @@ def init_db():
         ("ollama_url", "http://localhost:11434", 0),
         ("default_model", "ollama", 0),
         ("default_ollama_model", "llama3.2", 0),
+        ("video_retention_days", "60", 0),
     ]
     for key, value, enc in defaults:
         c.execute(

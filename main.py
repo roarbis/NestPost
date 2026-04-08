@@ -31,10 +31,84 @@ from image_client import (
     generate_images, refine_image_prompt, overlay_logo,
     IMAGE_PROVIDERS, ASPECT_RATIOS,
 )
-
+from video_client import (
+    generate_video, generate_video_prompts, search_stock_footage,
+    VIDEO_PROVIDERS, VIDEO_ASPECT_RATIOS,
+    upload_video_to_r2, delete_video_from_r2, is_r2_configured,
+)
+from contextlib import asynccontextmanager
 from starlette.middleware.gzip import GZipMiddleware
 
-app = FastAPI(title="ConnectNest Marketing Assistant")
+
+def _get_r2_config() -> dict:
+    """Collect R2 settings from the database."""
+    return {
+        "account_id": get_setting("r2_account_id", ""),
+        "access_key_id": get_setting("r2_access_key_id", ""),
+        "secret_access_key": get_setting("r2_secret_access_key", ""),
+        "bucket_name": get_setting("r2_bucket_name", ""),
+        "public_url": get_setting("r2_public_url", ""),
+    }
+
+
+def run_video_cleanup():
+    """Delete videos older than video_retention_days from R2 and/or DB."""
+    try:
+        retention_days = int(get_setting("video_retention_days", "60") or 60)
+        conn = get_conn()
+        old_videos = conn.execute(
+            "SELECT id, video_path, video_data FROM content "
+            "WHERE (video_path IS NOT NULL OR video_data IS NOT NULL) "
+            "AND created_at < datetime('now', ?)",
+            (f"-{retention_days} days",),
+        ).fetchall()
+
+        if not old_videos:
+            conn.close()
+            return 0
+
+        r2_config = _get_r2_config()
+        r2_ready = is_r2_configured(r2_config)
+        deleted = 0
+
+        for row in old_videos:
+            video_path = row["video_path"] or ""
+            # Delete from R2 if it's an R2 URL
+            if r2_ready and video_path.startswith("http"):
+                delete_video_from_r2(
+                    video_url=video_path,
+                    public_url=r2_config["public_url"],
+                    account_id=r2_config["account_id"],
+                    access_key_id=r2_config["access_key_id"],
+                    secret_access_key=r2_config["secret_access_key"],
+                    bucket_name=r2_config["bucket_name"],
+                )
+            # Clear video columns from DB
+            conn.execute(
+                "UPDATE content SET video_path = NULL, video_prompt = NULL, "
+                "video_data = NULL, video_mime = NULL WHERE id = ?",
+                (row["id"],),
+            )
+            deleted += 1
+
+        conn.commit()
+        conn.close()
+        return deleted
+    except Exception as e:
+        print(f"[video cleanup] Error: {e}")
+        return 0
+
+
+@asynccontextmanager
+async def lifespan(app):
+    # Run video cleanup on startup
+    deleted = run_video_cleanup()
+    if deleted:
+        print(f"[startup] Video cleanup: removed {deleted} expired video(s)")
+    yield
+
+
+app = FastAPI(title="ConnectNest Marketing Assistant", lifespan=lifespan)
 
 app.add_middleware(GZipMiddleware, minimum_size=500)
 app.add_middleware(
@@ -561,7 +635,7 @@ async def generate(req: GenerateRequest):
 
 # ── Content Library ───────────────────────────────────────────────────────────
 # Exclude image_data from queries to avoid sending huge blobs in API responses
-CONTENT_COLS = "id, platform, content_type, topic, caption, hashtags, image_suggestion, hook, cta, status, created_at, posted_at, image_path, image_prompt"
+CONTENT_COLS = "id, platform, content_type, topic, caption, hashtags, image_suggestion, hook, cta, status, created_at, posted_at, image_path, image_prompt, video_path, video_prompt"
 
 @app.get("/api/content")
 async def list_content(
@@ -929,6 +1003,262 @@ async def delete_brand_logo():
     return {"deleted": True}
 
 
+# ── Video Generation ───────────────────────────────────────────────────────────
+
+@app.get("/api/video-providers")
+async def list_video_providers():
+    return {"providers": VIDEO_PROVIDERS, "aspect_ratios": VIDEO_ASPECT_RATIOS}
+
+
+class VideoPromptRequest(BaseModel):
+    content_id: int
+
+
+@app.post("/api/video/suggest-prompts")
+async def suggest_video_prompts(req: VideoPromptRequest):
+    """Generate 3 video prompt variants (cinematic, dynamic, minimal) for a content item."""
+    conn = get_conn()
+    row = conn.execute(f"SELECT {CONTENT_COLS} FROM content WHERE id = ?", (req.content_id,)).fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Content not found")
+
+    gemini_key = get_setting("gemini_api_key", "")
+    if not gemini_key:
+        raise HTTPException(status_code=400, detail="Gemini API key required for video prompt generation")
+
+    try:
+        prompts = await generate_video_prompts(
+            caption=row["caption"] or "",
+            platform=row["platform"] or "instagram",
+            image_suggestion=row["image_suggestion"] or "",
+            hook=row["hook"] or "",
+            api_key=gemini_key,
+        )
+        return {"prompts": prompts, "content_id": req.content_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Video prompt generation failed: {str(e)}")
+
+
+class GenerateVideoRequest(BaseModel):
+    content_id: int
+    prompt: str
+    provider: str = "veo3_free"
+    aspect_ratio: str = "9:16"
+    duration: int = 8
+    use_paid: bool = False
+
+
+@app.post("/api/video/generate")
+async def generate_video_endpoint(req: GenerateVideoRequest):
+    """Generate a video from a prompt using the selected provider.
+    Returns {status, video_base64, mime_type} on success."""
+    conn = get_conn()
+    row = conn.execute(f"SELECT {CONTENT_COLS} FROM content WHERE id = ?", (req.content_id,)).fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Content not found")
+
+    # Collect video gen API keys
+    api_keys = {
+        "gemini": get_setting("gemini_api_key", ""),
+        "kling": get_setting("kling_api_key", ""),
+        "runway": get_setting("runway_api_key", ""),
+        "luma": get_setting("luma_api_key", ""),
+    }
+
+    try:
+        result = await generate_video(
+            prompt=req.prompt,
+            provider=req.provider,
+            api_keys=api_keys,
+            aspect_ratio=req.aspect_ratio,
+            duration=req.duration,
+        )
+
+        if result.get("status") == "rate_limited":
+            return JSONResponse(status_code=429, content=result)
+
+        if result.get("status") != "complete":
+            raise HTTPException(status_code=500, detail=result.get("error", "Video generation failed"))
+
+        return {
+            "status": "complete",
+            "video_base64": result["video_base64"],
+            "mime_type": result.get("mime_type", "video/mp4"),
+            "provider": req.provider,
+            "prompt": req.prompt,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Video generation failed: {str(e)}")
+
+
+class SaveVideoRequest(BaseModel):
+    content_id: int
+    video_base64: str
+    video_prompt: str
+    mime_type: str = "video/mp4"
+
+
+@app.post("/api/video/save")
+async def save_video(req: SaveVideoRequest):
+    """Save a generated video.
+    If R2 is configured: upload to Cloudflare R2, store public URL (no blob in DB).
+    Otherwise: fall back to storing the base64 blob in the database."""
+    conn = get_conn()
+    row = conn.execute("SELECT id FROM content WHERE id = ?", (req.content_id,)).fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Content not found")
+
+    r2_config = _get_r2_config()
+    storage_mode = "r2" if is_r2_configured(r2_config) else "blob"
+
+    if storage_mode == "r2":
+        try:
+            video_url = upload_video_to_r2(
+                video_base64=req.video_base64,
+                content_id=req.content_id,
+                mime_type=req.mime_type,
+                account_id=r2_config["account_id"],
+                access_key_id=r2_config["access_key_id"],
+                secret_access_key=r2_config["secret_access_key"],
+                bucket_name=r2_config["bucket_name"],
+                public_url=r2_config["public_url"],
+            )
+            # Store URL only — no blob in DB
+            conn.execute(
+                "UPDATE content SET video_path = ?, video_prompt = ?, "
+                "video_data = NULL, video_mime = ? WHERE id = ?",
+                (video_url, req.video_prompt, req.mime_type, req.content_id),
+            )
+            conn.commit()
+            updated = conn.execute(f"SELECT {CONTENT_COLS} FROM content WHERE id = ?", (req.content_id,)).fetchone()
+            conn.close()
+            return {"saved": True, "video_path": video_url, "storage": "r2", "content": dict(updated)}
+        except Exception as e:
+            # R2 upload failed — fall back to blob so the user doesn't lose their video
+            print(f"[R2 upload failed, falling back to blob] {e}")
+            storage_mode = "blob"
+
+    # Blob fallback (local/web server, or if R2 fails)
+    video_path = f"/api/content/{req.content_id}/video-file"
+    conn.execute(
+        "UPDATE content SET video_path = ?, video_prompt = ?, video_data = ?, video_mime = ? WHERE id = ?",
+        (video_path, req.video_prompt, req.video_base64, req.mime_type, req.content_id),
+    )
+    conn.commit()
+    updated = conn.execute(f"SELECT {CONTENT_COLS} FROM content WHERE id = ?", (req.content_id,)).fetchone()
+    conn.close()
+    return {"saved": True, "video_path": video_path, "storage": "blob", "content": dict(updated)}
+
+
+@app.get("/api/content/{item_id}/video-file")
+async def serve_content_video(item_id: int):
+    """Serve a content video from the database."""
+    conn = get_conn()
+    row = conn.execute("SELECT video_data, video_mime FROM content WHERE id = ?", (item_id,)).fetchone()
+    conn.close()
+    if not row or not row["video_data"]:
+        raise HTTPException(status_code=404, detail="No video found")
+    video_bytes = base64.b64decode(row["video_data"])
+    mime = row["video_mime"] or "video/mp4"
+    return Response(content=video_bytes, media_type=mime, headers={
+        "Cache-Control": "public, max-age=86400",
+        "Content-Disposition": f"inline; filename=video_{item_id}.mp4",
+    })
+
+
+@app.delete("/api/content/{item_id}/video")
+async def delete_video(item_id: int):
+    """Remove the video from a content item."""
+    conn = get_conn()
+    row = conn.execute("SELECT id FROM content WHERE id = ?", (item_id,)).fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Content not found")
+
+    conn.execute(
+        "UPDATE content SET video_path = NULL, video_prompt = NULL, video_data = NULL, video_mime = NULL WHERE id = ?",
+        (item_id,),
+    )
+    conn.commit()
+    conn.close()
+    return {"deleted": True}
+
+
+class StockFootageRequest(BaseModel):
+    query: str
+    orientation: str = "portrait"
+    per_page: int = 5
+
+
+@app.post("/api/video/stock-footage")
+async def stock_footage_search(req: StockFootageRequest):
+    """Search Pexels for stock video footage (free alternative to AI generation)."""
+    pexels_key = get_setting("pexels_api_key", "")
+    if not pexels_key:
+        raise HTTPException(status_code=400, detail="Pexels API key required for stock footage search")
+
+    try:
+        results = await search_stock_footage(
+            query=req.query,
+            api_key=pexels_key,
+            orientation=req.orientation,
+            per_page=req.per_page,
+        )
+        return {"videos": results, "count": len(results)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Stock footage search failed: {str(e)}")
+
+
+# ── Video Storage Management ──────────────────────────────────────────────────
+
+@app.get("/api/video/storage-status")
+async def video_storage_status():
+    """Return R2 config status and how many videos are stored (and their age)."""
+    r2_config = _get_r2_config()
+    r2_ready = is_r2_configured(r2_config)
+    retention_days = int(get_setting("video_retention_days", "60") or 60)
+
+    conn = get_conn()
+    total = conn.execute(
+        "SELECT COUNT(*) as cnt FROM content WHERE video_path IS NOT NULL OR video_data IS NOT NULL"
+    ).fetchone()["cnt"]
+    r2_stored = conn.execute(
+        "SELECT COUNT(*) as cnt FROM content WHERE video_path LIKE 'http%'"
+    ).fetchone()["cnt"]
+    blob_stored = conn.execute(
+        "SELECT COUNT(*) as cnt FROM content WHERE video_data IS NOT NULL"
+    ).fetchone()["cnt"]
+    due_cleanup = conn.execute(
+        "SELECT COUNT(*) as cnt FROM content "
+        "WHERE (video_path IS NOT NULL OR video_data IS NOT NULL) "
+        "AND created_at < datetime('now', ?)",
+        (f"-{retention_days} days",),
+    ).fetchone()["cnt"]
+    conn.close()
+
+    return {
+        "r2_configured": r2_ready,
+        "r2_bucket": r2_config["bucket_name"] if r2_ready else None,
+        "retention_days": retention_days,
+        "total_videos": total,
+        "r2_stored": r2_stored,
+        "blob_stored": blob_stored,
+        "due_for_cleanup": due_cleanup,
+    }
+
+
+@app.post("/api/video/cleanup")
+async def trigger_video_cleanup():
+    """Manually trigger video cleanup — deletes videos older than retention_days."""
+    deleted = run_video_cleanup()
+    return {"deleted": deleted, "message": f"Cleaned up {deleted} expired video(s)"}
+
+
 # ── Stats ─────────────────────────────────────────────────────────────────────
 
 @app.get("/api/stats")
@@ -975,6 +1305,12 @@ ENCRYPTED_KEYS = {
     "linkedin_access_token",
     "facebook_page_id",
     "facebook_access_token",
+    "kling_api_key",
+    "runway_api_key",
+    "luma_api_key",
+    "pexels_api_key",
+    "r2_access_key_id",
+    "r2_secret_access_key",
 }
 
 SETTINGS_KEYS = [
@@ -994,6 +1330,19 @@ SETTINGS_KEYS = [
     "linkedin_access_token",
     "facebook_page_id",
     "facebook_access_token",
+    "kling_api_key",
+    "runway_api_key",
+    "luma_api_key",
+    "pexels_api_key",
+    "default_video_provider",
+    # Cloudflare R2 storage
+    "r2_account_id",
+    "r2_access_key_id",
+    "r2_secret_access_key",
+    "r2_bucket_name",
+    "r2_public_url",
+    # Video retention
+    "video_retention_days",
 ]
 
 

@@ -38,7 +38,7 @@ initTheme();
 
 document.addEventListener('DOMContentLoaded', async () => {
   setGreeting();
-  await Promise.all([loadHealth(), loadStats(), loadSuggestions(), loadModels(), loadSettings(), loadCurrentUser(), loadBrandLogo()]);
+  await Promise.all([loadHealth(), loadStats(), loadSuggestions(), loadModels(), loadSettings(), loadCurrentUser(), loadBrandLogo(), loadR2Status()]);
   loadRecentContent();
 });
 
@@ -411,11 +411,15 @@ function buildContentCard(item, isNew) {
   const dateStr = new Date(item.created_at).toLocaleDateString('en-AU', { day:'numeric', month:'short' });
 
   const hasImage = !!item.image_path;
+  const hasVideo = !!item.video_path;
   div.innerHTML = `
     ${hasImage
       ? `<div style="height:140px;overflow:hidden;flex-shrink:0;position:relative;">
            <img src="${item.image_path}?t=${Date.now()}" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.style.display='none'" />
-           <div style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.5);color:#fff;font-size:0.65rem;font-weight:700;padding:2px 8px;border-radius:99px;">📸 AI</div>
+           <div style="position:absolute;top:8px;right:8px;display:flex;gap:4px;">
+             <span style="background:rgba(0,0,0,0.5);color:#fff;font-size:0.65rem;font-weight:700;padding:2px 8px;border-radius:99px;">📸 AI</span>
+             ${hasVideo ? '<span style="background:rgba(236,72,153,0.8);color:#fff;font-size:0.65rem;font-weight:700;padding:2px 8px;border-radius:99px;">🎬 Video</span>' : ''}
+           </div>
          </div>`
       : `<div class="strip-${item.platform === 'instagram' ? 'ig' : item.platform === 'linkedin' ? 'li' : 'fb'}" style="height:5px;flex-shrink:0;"></div>`
     }
@@ -495,6 +499,22 @@ async function openModal(id) {
     } else {
       savedSection.style.display = 'none';
     }
+
+    // Video state init
+    document.getElementById('modal-video-prompt').value = item.video_prompt || '';
+    document.getElementById('modal-video-suggestions').style.display = 'none';
+    document.getElementById('modal-video-result').style.display = 'none';
+    document.getElementById('modal-video-loading').style.display = 'none';
+    document.getElementById('modal-stock-results').style.display = 'none';
+    const savedVideoSection = document.getElementById('modal-saved-video');
+    if (item.video_path) {
+      savedVideoSection.style.display = '';
+      document.getElementById('modal-saved-video-preview').src = item.video_path + '?t=' + Date.now();
+    } else {
+      savedVideoSection.style.display = 'none';
+    }
+    window._generatedVideoB64 = null;
+    window._generatedVideoMime = null;
 
     const approveBtn = document.getElementById('modal-approve-btn');
     approveBtn.innerHTML = item.status === 'approved' ? '<svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg> Approved' : '<svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg> Approve';
@@ -627,7 +647,15 @@ async function loadSettings() {
     Object.entries(map).forEach(([k,id]) => { const el = document.getElementById(id); if (el && data[k]) el.value = data[k]; });
     const imgProv = document.getElementById('s-default-image-provider');
     if (imgProv && data.default_image_provider) imgProv.value = data.default_image_provider;
-    const sensitive = ['groq_api_key','gemini_api_key','deepseek_api_key','qwen_api_key','gemini_paid_api_key','stability_api_key','openai_api_key','linkedin_client_id','linkedin_client_secret','linkedin_access_token','facebook_page_id','facebook_access_token'];
+    const vidProv = document.getElementById('s-default-video-provider');
+    if (vidProv && data.default_video_provider) vidProv.value = data.default_video_provider;
+    const sensitive = ['groq_api_key','gemini_api_key','deepseek_api_key','qwen_api_key','gemini_paid_api_key','stability_api_key','openai_api_key','linkedin_client_id','linkedin_client_secret','linkedin_access_token','facebook_page_id','facebook_access_token','kling_api_key','runway_api_key','luma_api_key','pexels_api_key','r2_access_key_id','r2_secret_access_key'];
+    // Non-sensitive R2 fields
+    const r2Fields = { r2_account_id:'s-r2-account-id', r2_bucket_name:'s-r2-bucket-name', r2_public_url:'s-r2-public-url' };
+    Object.entries(r2Fields).forEach(([k,id]) => { const el = document.getElementById(id); if (el && data[k]) el.value = data[k]; });
+    // Video retention
+    const retEl = document.getElementById('s-video-retention-days');
+    if (retEl && data.video_retention_days) retEl.value = data.video_retention_days;
     sensitive.forEach(k => {
       const el = document.getElementById(`s-${k.replace(/_/g,'-')}`);
       if (el && data[k] === '••••••••') el.placeholder = '••••••••  (saved & encrypted)';
@@ -653,12 +681,68 @@ async function saveSettings() {
     linkedin_access_token: document.getElementById('s-linkedin-access-token')?.value,
     facebook_page_id: document.getElementById('s-facebook-page-id')?.value,
     facebook_access_token: document.getElementById('s-facebook-access-token')?.value,
+    kling_api_key: document.getElementById('s-kling-api-key')?.value,
+    runway_api_key: document.getElementById('s-runway-api-key')?.value,
+    luma_api_key: document.getElementById('s-luma-api-key')?.value,
+    pexels_api_key: document.getElementById('s-pexels-api-key')?.value,
+    default_video_provider: document.getElementById('s-default-video-provider')?.value,
+    r2_account_id: document.getElementById('s-r2-account-id')?.value,
+    r2_access_key_id: document.getElementById('s-r2-access-key-id')?.value,
+    r2_secret_access_key: document.getElementById('s-r2-secret-access-key')?.value,
+    r2_bucket_name: document.getElementById('s-r2-bucket-name')?.value,
+    r2_public_url: document.getElementById('s-r2-public-url')?.value,
+    video_retention_days: document.getElementById('s-video-retention-days')?.value,
   };
   try {
     await api('/api/settings', 'POST', { settings });
     showToast('Settings saved', 'success');
     loadHealth(); loadModels();
   } catch (err) { showToast(err.message, 'error'); }
+}
+
+// ── R2 Storage Status & Video Retention ──────────────────────────────────────
+
+async function loadR2Status() {
+  try {
+    const data = await api('/api/video/storage-status');
+    const dot = document.getElementById('r2-status-dot');
+    const text = document.getElementById('r2-status-text');
+    const stats = document.getElementById('r2-storage-stats');
+
+    if (dot && text) {
+      if (data.r2_configured) {
+        dot.style.background = '#2dd4bf';
+        text.textContent = `R2 configured — bucket: ${data.r2_bucket}`;
+        text.style.color = '#2dd4bf';
+      } else {
+        dot.style.background = '#f59e0b';
+        text.textContent = 'R2 not configured — videos stored as database blobs';
+        text.style.color = '#f59e0b';
+      }
+    }
+
+    if (stats) {
+      stats.innerHTML = `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;">
+          <span>Total videos stored:</span> <strong style="color:#f1f5f9;">${data.total_videos}</strong>
+          <span>In R2 (URL):</span> <strong style="color:#2dd4bf;">${data.r2_stored}</strong>
+          <span>In database (blob):</span> <strong style="color:#f59e0b;">${data.blob_stored}</strong>
+          <span>Due for cleanup:</span> <strong style="color:${data.due_for_cleanup > 0 ? '#f87171' : '#2dd4bf'};">${data.due_for_cleanup}</strong>
+          <span>Retention period:</span> <strong style="color:#f1f5f9;">${data.retention_days} days</strong>
+        </div>
+      `;
+    }
+  } catch { /* silent */ }
+}
+
+async function triggerVideoCleanup() {
+  try {
+    const data = await api('/api/video/cleanup', 'POST');
+    showToast(`Cleanup complete — ${data.deleted} video(s) deleted`, data.deleted > 0 ? 'success' : 'success');
+    loadR2Status();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
 }
 
 // ── Brand Logo Management ─────────────────────────────────────────────────
@@ -987,6 +1071,223 @@ async function removeImage() {
     selectedImageIdx = null;
     showToast('Image removed', 'success');
     if (currentPage === 'library') loadLibrary();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+// ── Video Generation ─────────────────────────────────────────────────────
+
+function updateVideoModelInfo() {
+  const provider = document.getElementById('modal-video-provider')?.value;
+  const info = document.getElementById('modal-video-model-info');
+  if (!info) return;
+  const providerInfo = {
+    veo3_free:  { text: 'Uses your Gemini API key — top quality, ~5-10 free generations/day', color: '#2dd4bf' },
+    veo3_paid:  { text: 'Uses your Gemini API key — full quality, $0.50/sec', color: '#fbbf24' },
+    kling_free: { text: 'Uses Kling API key — 66 free credits/day, 720p watermarked', color: '#2dd4bf' },
+    kling_pro:  { text: 'Uses Kling API key — 1080p, no watermark', color: '#fbbf24' },
+    runway:     { text: 'Uses Runway API key — $0.05-0.10/sec, strong character coherence', color: '#fbbf24' },
+    luma:       { text: 'Uses Luma API key — $0.20/video, good for product reveals', color: '#fbbf24' },
+  };
+  const p = providerInfo[provider] || providerInfo.veo3_free;
+  info.innerHTML = `<span style="width:6px;height:6px;border-radius:50%;background:${p.color};display:inline-block;"></span> ${p.text}`;
+}
+
+function toggleVideoPaidModels() {
+  const usePaid = document.getElementById('modal-video-use-paid')?.checked;
+  const select = document.getElementById('modal-video-provider');
+  if (!select) return;
+  if (usePaid) {
+    select.value = 'veo3_paid';
+  } else {
+    select.value = 'veo3_free';
+  }
+  updateVideoModelInfo();
+}
+
+async function suggestVideoPrompts() {
+  if (!modalItemId) return;
+  const btn = document.getElementById('modal-video-suggest-btn');
+  btn.textContent = '⏳ Generating...';
+  btn.disabled = true;
+  try {
+    const data = await api('/api/video/suggest-prompts', 'POST', { content_id: modalItemId });
+    const prompts = data.prompts || [];
+    const container = document.getElementById('modal-video-prompt-cards');
+    container.innerHTML = '';
+
+    const styleColors = { Cinematic: '#6366f1', Dynamic: '#f97316', Minimal: '#2dd4bf' };
+
+    prompts.forEach(p => {
+      const card = document.createElement('div');
+      const borderColor = styleColors[p.style] || '#6366f1';
+      card.style.cssText = `background:rgba(15,23,42,0.6);border:1px solid ${borderColor}40;border-radius:12px;padding:12px;cursor:pointer;transition:all 0.2s;`;
+      card.onmouseover = () => { card.style.borderColor = borderColor; card.style.background = 'rgba(15,23,42,0.9)'; };
+      card.onmouseout = () => { card.style.borderColor = borderColor + '40'; card.style.background = 'rgba(15,23,42,0.6)'; };
+      card.onclick = () => {
+        document.getElementById('modal-video-prompt').value = p.prompt;
+        const aspectSelect = document.getElementById('modal-video-aspect');
+        if (aspectSelect && p.suggested_aspect_ratio) aspectSelect.value = p.suggested_aspect_ratio;
+        const durSelect = document.getElementById('modal-video-duration');
+        if (durSelect && p.suggested_length) durSelect.value = String(p.suggested_length);
+        showToast(`${p.style} prompt loaded — edit if needed, then generate`, 'success');
+      };
+
+      card.innerHTML = `
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+          <span style="background:${borderColor};color:#fff;font-size:0.68rem;font-weight:700;padding:2px 8px;border-radius:99px;">${p.style}</span>
+          <span style="font-size:0.68rem;color:#64748b;">${p.suggested_length || 8}s · ${p.suggested_aspect_ratio || '9:16'}</span>
+        </div>
+        <div style="font-size:0.78rem;color:#cbd5e1;line-height:1.5;">${p.prompt}</div>
+      `;
+      container.appendChild(card);
+    });
+
+    document.getElementById('modal-video-suggestions').style.display = '';
+    showToast('3 video prompts generated — click one to use it', 'success');
+  } catch (err) {
+    showToast(err.message, 'error');
+  } finally {
+    btn.textContent = '🎬 Suggest Prompts';
+    btn.disabled = false;
+  }
+}
+
+async function generateVideo() {
+  if (!modalItemId) return;
+  const prompt = document.getElementById('modal-video-prompt')?.value?.trim();
+  if (!prompt) { showToast('Write or select a video prompt first', 'error'); return; }
+
+  const provider = document.getElementById('modal-video-provider')?.value || 'veo3_free';
+  const aspectRatio = document.getElementById('modal-video-aspect')?.value || '9:16';
+  const duration = parseInt(document.getElementById('modal-video-duration')?.value || '8');
+
+  const btn = document.getElementById('modal-gen-video-btn');
+  const loading = document.getElementById('modal-video-loading');
+  const result = document.getElementById('modal-video-result');
+  btn.disabled = true;
+  btn.innerHTML = '<svg class="spin" width="15" height="15" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" opacity="0.25"/><path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg> Generating...';
+  loading.style.display = '';
+  result.style.display = 'none';
+
+  try {
+    const data = await api('/api/video/generate', 'POST', {
+      content_id: modalItemId,
+      prompt,
+      provider,
+      aspect_ratio: aspectRatio,
+      duration,
+    });
+
+    if (data.video_base64) {
+      window._generatedVideoB64 = data.video_base64;
+      window._generatedVideoMime = data.mime_type || 'video/mp4';
+
+      const preview = document.getElementById('modal-video-preview');
+      preview.src = `data:${data.mime_type};base64,${data.video_base64}`;
+      result.style.display = '';
+      showToast('Video generated — preview it below, then save or regenerate', 'success');
+    } else {
+      showToast('No video returned — try a different model or prompt', 'error');
+    }
+  } catch (err) {
+    if (err.message?.includes('429') || err.message?.includes('rate_limited')) {
+      showToast('Rate limit reached — try a different model or wait a bit', 'error');
+    } else {
+      showToast(err.message, 'error');
+    }
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg> Generate Video';
+    loading.style.display = 'none';
+  }
+}
+
+function regenerateVideo() {
+  generateVideo();
+}
+
+async function saveGeneratedVideo() {
+  if (!window._generatedVideoB64 || !modalItemId) return;
+  const prompt = document.getElementById('modal-video-prompt')?.value || '';
+
+  try {
+    const data = await api('/api/video/save', 'POST', {
+      content_id: modalItemId,
+      video_base64: window._generatedVideoB64,
+      video_prompt: prompt,
+      mime_type: window._generatedVideoMime || 'video/mp4',
+    });
+
+    const savedSection = document.getElementById('modal-saved-video');
+    const preview = document.getElementById('modal-saved-video-preview');
+    preview.src = data.video_path + '?t=' + Date.now();
+    savedSection.style.display = '';
+
+    showToast('Video saved', 'success');
+    if (currentPage === 'library') loadLibrary();
+    loadRecentContent();
+  } catch (err) {
+    showToast('Failed to save video: ' + err.message, 'error');
+  }
+}
+
+async function removeVideo() {
+  if (!modalItemId) return;
+  try {
+    await api(`/api/content/${modalItemId}/video`, 'DELETE');
+    document.getElementById('modal-saved-video').style.display = 'none';
+    document.getElementById('modal-video-result').style.display = 'none';
+    window._generatedVideoB64 = null;
+    window._generatedVideoMime = null;
+    showToast('Video removed', 'success');
+    if (currentPage === 'library') loadLibrary();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+async function searchStockFootage() {
+  if (!modalItemId) return;
+  const caption = document.getElementById('modal-caption-text')?.value || '';
+  const query = prompt('Search stock footage (Pexels):', caption.split('\n')[0]?.substring(0, 50) || 'smart home');
+  if (!query) return;
+
+  const aspect = document.getElementById('modal-video-aspect')?.value || '9:16';
+  const orientation = aspect === '16:9' ? 'landscape' : aspect === '1:1' ? 'square' : 'portrait';
+
+  try {
+    const data = await api('/api/video/stock-footage', 'POST', { query, orientation, per_page: 6 });
+    const grid = document.getElementById('modal-stock-grid');
+    grid.innerHTML = '';
+
+    if (!data.videos?.length) {
+      showToast('No stock footage found for that query', 'error');
+      return;
+    }
+
+    data.videos.forEach(v => {
+      const card = document.createElement('div');
+      card.style.cssText = 'position:relative;border-radius:12px;overflow:hidden;cursor:pointer;border:2px solid transparent;transition:all 0.2s;';
+      card.onmouseover = () => { card.style.borderColor = '#2dd4bf'; };
+      card.onmouseout = () => { card.style.borderColor = 'transparent'; };
+      card.onclick = () => {
+        window.open(v.url, '_blank');
+        showToast('Stock footage link opened — download and use in your editor', 'success');
+      };
+
+      card.innerHTML = `
+        <img src="${v.preview}" style="width:100%;aspect-ratio:16/9;object-fit:cover;display:block;" />
+        <div style="position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,0.8));padding:8px;font-size:0.72rem;color:#fff;">
+          ${v.duration}s · ${v.width}x${v.height}
+        </div>
+      `;
+      grid.appendChild(card);
+    });
+
+    document.getElementById('modal-stock-results').style.display = '';
+    showToast(`Found ${data.videos.length} stock clips — click to open`, 'success');
   } catch (err) {
     showToast(err.message, 'error');
   }

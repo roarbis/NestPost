@@ -858,6 +858,86 @@
 
     <div class="settings-section">
       <div class="settings-header">
+        <h2 style="font-size:0.9375rem;font-weight:700;color:#f1f5f9;margin:0 0 2px;">Video Generation</h2>
+        <p style="font-size:0.8125rem;color:#64748b;margin:0 0 18px;">API keys for AI video generation. Gemini key (above) powers Veo 3 free tier. Other providers need separate keys.</p>
+      </div>
+      <div class="settings-body" style="border-top:1px solid rgba(255,255,255,0.06);">
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <div>
+            <label class="lbl">Default Video Provider</label>
+            <select id="s-default-video-provider" class="inp">
+              <option value="veo3_free">Veo 3 Free (uses Gemini key)</option>
+              <option value="kling_free">Kling AI Free</option>
+              <option value="veo3_paid">Veo 3 Paid (uses Gemini key)</option>
+              <option value="kling_pro">Kling AI Pro</option>
+              <option value="runway">Runway Gen-4</option>
+              <option value="luma">Luma Dream Machine</option>
+            </select>
+          </div>
+          <div><label class="lbl">Kling AI API Key</label><input id="s-kling-api-key" class="inp" type="password" placeholder="Kling API key from klingai.com" /></div>
+          <div><label class="lbl">Runway API Key <span style="color:#fbbf24;font-weight:600;font-size:0.7rem;background:rgba(251,191,36,0.12);padding:2px 7px;border-radius:99px;margin-left:4px;">Paid</span></label><input id="s-runway-api-key" class="inp" type="password" placeholder="Runway API key" /></div>
+          <div><label class="lbl">Luma API Key <span style="color:#fbbf24;font-weight:600;font-size:0.7rem;background:rgba(251,191,36,0.12);padding:2px 7px;border-radius:99px;margin-left:4px;">Paid</span></label><input id="s-luma-api-key" class="inp" type="password" placeholder="Luma API key from lumalabs.ai" /></div>
+          <div><label class="lbl">Pexels API Key <span style="color:#2dd4bf;font-weight:600;font-size:0.7rem;background:rgba(45,212,191,0.12);padding:2px 7px;border-radius:99px;margin-left:4px;">Free</span></label><input id="s-pexels-api-key" class="inp" type="password" placeholder="Pexels API key for stock footage (free at pexels.com/api)" /></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-header">
+        <h2 style="font-size:0.9375rem;font-weight:700;color:#f1f5f9;margin:0 0 2px;">Video Storage (Cloudflare R2)</h2>
+        <p style="font-size:0.8125rem;color:#64748b;margin:0 0 6px;">Stores generated videos in Cloudflare R2 instead of the database — required for Render hosting. Free tier: 10 GB storage, zero egress fees. <a href="https://dash.cloudflare.com/" target="_blank" style="color:#818cf8;">Set up at dash.cloudflare.com →</a></p>
+        <p style="font-size:0.75rem;color:#475569;margin:0 0 18px;">Without R2: videos are stored as blobs in the database (fine for self-hosted, not ideal for Render). With R2: only the URL is stored — much lighter on database storage.</p>
+      </div>
+      <div class="settings-body" style="border-top:1px solid rgba(255,255,255,0.06);">
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <!-- R2 status badge -->
+          <div id="r2-status-badge" style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:10px;background:rgba(15,23,42,0.6);border:1px solid rgba(255,255,255,0.08);">
+            <span id="r2-status-dot" style="width:8px;height:8px;border-radius:50%;background:#475569;flex-shrink:0;"></span>
+            <span id="r2-status-text" style="font-size:0.8rem;color:#94a3b8;">Loading...</span>
+            <button onclick="loadR2Status()" style="margin-left:auto;font-size:0.72rem;color:#818cf8;background:none;border:none;cursor:pointer;font-weight:600;">↻ Refresh</button>
+          </div>
+          <div><label class="lbl">Cloudflare Account ID</label><input id="s-r2-account-id" class="inp" type="text" placeholder="32-char hex string from Cloudflare dashboard" /></div>
+          <div><label class="lbl">R2 Access Key ID <span style="color:#64748b;font-size:0.7rem;">(R2 API token, not account token)</span></label><input id="s-r2-access-key-id" class="inp" type="password" placeholder="R2 Access Key ID" /></div>
+          <div><label class="lbl">R2 Secret Access Key</label><input id="s-r2-secret-access-key" class="inp" type="password" placeholder="R2 Secret Access Key" /></div>
+          <div><label class="lbl">Bucket Name</label><input id="s-r2-bucket-name" class="inp" type="text" placeholder="e.g. nestpost-videos" /></div>
+          <div><label class="lbl">Public URL <span style="color:#64748b;font-size:0.7rem;">(enable public access on bucket first)</span></label><input id="s-r2-public-url" class="inp" type="text" placeholder="e.g. https://pub-abc123.r2.dev" /></div>
+          <div style="padding:10px 14px;background:rgba(45,212,191,0.06);border:1px solid rgba(45,212,191,0.15);border-radius:10px;font-size:0.78rem;color:#94a3b8;line-height:1.6;">
+            <strong style="color:#2dd4bf;">Setup steps:</strong> Cloudflare dashboard → R2 → Create bucket → Settings → Enable public access → Copy the public URL. Then create an API token with R2 Object Read/Write permissions.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-header">
+        <h2 style="font-size:0.9375rem;font-weight:700;color:#f1f5f9;margin:0 0 2px;">Video Retention</h2>
+        <p style="font-size:0.8125rem;color:#64748b;margin:0 0 18px;">Videos older than the retention period are automatically deleted on app startup to keep storage costs down. The post text, caption, and hashtags are kept — only the video file is removed.</p>
+      </div>
+      <div class="settings-body" style="border-top:1px solid rgba(255,255,255,0.06);">
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <div>
+            <label class="lbl">Keep videos for</label>
+            <select id="s-video-retention-days" class="inp">
+              <option value="30">30 days</option>
+              <option value="60" selected>60 days (default)</option>
+              <option value="90">90 days</option>
+              <option value="180">180 days</option>
+              <option value="365">1 year</option>
+              <option value="9999">Never delete</option>
+            </select>
+          </div>
+          <div id="r2-storage-stats" style="padding:10px 14px;background:rgba(15,23,42,0.6);border:1px solid rgba(255,255,255,0.08);border-radius:10px;font-size:0.78rem;color:#94a3b8;line-height:1.8;">
+            Loading storage stats...
+          </div>
+          <button onclick="triggerVideoCleanup()" style="align-self:flex-start;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);color:#f87171;padding:8px 16px;border-radius:8px;font-size:0.8rem;font-weight:600;cursor:pointer;">
+            🗑 Run Cleanup Now
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-header">
         <h2 style="font-size:0.9375rem;font-weight:700;color:#f1f5f9;margin:0 0 2px;">Brand Logo Overlay</h2>
         <p style="font-size:0.8125rem;color:#64748b;margin:0 0 18px;">Upload your logo to automatically watermark every generated image (bottom-right corner). Use a PNG with transparent background for best results.</p>
       </div>
@@ -1116,6 +1196,120 @@
             <button class="btn-ghost btn-danger-ghost" onclick="removeImage()" style="font-size:0.75rem;">Remove image</button>
           </div>
           <img id="modal-saved-image-preview" style="width:100%;border-radius:12px;border:1px solid rgba(255,255,255,0.08);" />
+        </div>
+      </div>
+
+      <!-- ── Video Generation Section ────────────────────────────────────── -->
+      <div style="margin-top:20px;border-top:2px solid rgba(236,72,153,0.15);padding-top:20px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <div style="width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#ec4899,#f97316);display:flex;align-items:center;justify-content:center;">
+              <svg width="14" height="14" fill="none" stroke="#fff" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+            </div>
+            <h4 style="font-size:0.9375rem;font-weight:700;color:#f1f5f9;margin:0;">AI Video Generation</h4>
+          </div>
+          <button class="btn-ghost" id="modal-video-suggest-btn" onclick="suggestVideoPrompts()" style="font-size:0.75rem;color:#f472b6;font-weight:600;">🎬 Suggest Prompts</button>
+        </div>
+
+        <!-- Video Prompt Suggestions (3 styles) -->
+        <div id="modal-video-suggestions" style="display:none;margin-bottom:14px;">
+          <label class="lbl">Choose a style <span style="color:#64748b;font-weight:400;">(click to use, or copy and edit)</span></label>
+          <div id="modal-video-prompt-cards" style="display:flex;flex-direction:column;gap:8px;"></div>
+        </div>
+
+        <div style="margin-bottom:12px;">
+          <label class="lbl">Video Prompt <span style="color:#64748b;font-weight:400;">(paste from above or write your own)</span></label>
+          <textarea id="modal-video-prompt" class="inp" style="height:80px;resize:vertical;font-size:0.8125rem;line-height:1.5;" placeholder="Click 'Suggest Prompts' to get 3 AI-generated video prompts, or write your own..."></textarea>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px;">
+          <div>
+            <label class="lbl">Video Model</label>
+            <select id="modal-video-provider" class="inp" onchange="updateVideoModelInfo()">
+              <optgroup label="Free Tier">
+                <option value="veo3_free">Veo 3 (Free)</option>
+                <option value="kling_free">Kling AI (Free)</option>
+              </optgroup>
+              <optgroup label="Paid">
+                <option value="veo3_paid">Veo 3 (Paid)</option>
+                <option value="kling_pro">Kling AI Pro</option>
+                <option value="runway">Runway Gen-4</option>
+                <option value="luma">Luma Dream Machine</option>
+              </optgroup>
+            </select>
+          </div>
+          <div>
+            <label class="lbl">Aspect Ratio</label>
+            <select id="modal-video-aspect" class="inp">
+              <option value="9:16">9:16 — Reels/TikTok</option>
+              <option value="16:9">16:9 — LinkedIn/YouTube</option>
+              <option value="1:1">1:1 — Square Feed</option>
+            </select>
+          </div>
+          <div>
+            <label class="lbl">Duration</label>
+            <select id="modal-video-duration" class="inp">
+              <option value="5">5 seconds</option>
+              <option value="8" selected>8 seconds</option>
+              <option value="10">10 seconds</option>
+              <option value="15">15 seconds</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Use paid models checkbox -->
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">
+          <input type="checkbox" id="modal-video-use-paid" onchange="toggleVideoPaidModels()" style="accent-color:#ec4899;width:16px;height:16px;">
+          <label for="modal-video-use-paid" style="font-size:0.8rem;color:#f1f5f9;cursor:pointer;">Use paid models <span style="color:#64748b;font-size:0.72rem;">(higher quality, costs per generation)</span></label>
+        </div>
+
+        <div id="modal-video-model-info" style="font-size:0.72rem;color:#64748b;margin-bottom:14px;display:flex;align-items:center;gap:6px;">
+          <span style="width:6px;height:6px;border-radius:50%;background:#2dd4bf;display:inline-block;"></span>
+          Uses your Gemini API key — top quality, ~5-10 free generations/day
+        </div>
+
+        <div style="display:flex;gap:8px;margin-bottom:14px;">
+          <button class="btn-primary" id="modal-gen-video-btn" onclick="generateVideo()" style="flex:1;justify-content:center;padding:11px;background:linear-gradient(135deg,#ec4899,#f97316);">
+            <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+            Generate Video
+          </button>
+          <button class="btn-ghost" onclick="searchStockFootage()" style="font-size:0.75rem;color:#2dd4bf;font-weight:600;white-space:nowrap;" title="Search free stock footage from Pexels">📦 Stock Footage</button>
+        </div>
+
+        <div id="modal-video-loading" style="display:none;text-align:center;padding:32px 0;">
+          <div style="width:40px;height:40px;border:3px solid rgba(236,72,153,0.2);border-top-color:#ec4899;border-radius:50%;margin:0 auto 12px;animation:spin 0.8s linear infinite;"></div>
+          <div style="font-size:0.8125rem;font-weight:600;color:#f1f5f9;">Generating video...</div>
+          <div style="font-size:0.75rem;color:#64748b;margin-top:4px;">This may take 1–5 minutes depending on the model</div>
+        </div>
+
+        <!-- Generated video preview -->
+        <div id="modal-video-result" style="display:none;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+            <label class="lbl" style="margin:0;">Generated Video Preview</label>
+            <div style="display:flex;gap:8px;">
+              <button class="btn-ghost" onclick="regenerateVideo()" style="font-size:0.75rem;color:#f472b6;font-weight:600;">🔄 Regenerate</button>
+              <button class="btn-ghost" onclick="saveGeneratedVideo()" style="font-size:0.75rem;color:#2dd4bf;font-weight:600;">💾 Save</button>
+            </div>
+          </div>
+          <video id="modal-video-preview" controls style="width:100%;border-radius:12px;border:1px solid rgba(255,255,255,0.08);max-height:400px;"></video>
+        </div>
+
+        <!-- Stock footage results -->
+        <div id="modal-stock-results" style="display:none;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+            <label class="lbl" style="margin:0;">Stock Footage Results</label>
+            <button class="btn-ghost" onclick="document.getElementById('modal-stock-results').style.display='none'" style="font-size:0.75rem;color:#64748b;">Close</button>
+          </div>
+          <div id="modal-stock-grid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;"></div>
+        </div>
+
+        <!-- Saved video -->
+        <div id="modal-saved-video" style="display:none;margin-top:14px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+            <label class="lbl" style="margin:0;">Current Video</label>
+            <button class="btn-ghost btn-danger-ghost" onclick="removeVideo()" style="font-size:0.75rem;">Remove video</button>
+          </div>
+          <video id="modal-saved-video-preview" controls style="width:100%;border-radius:12px;border:1px solid rgba(255,255,255,0.08);max-height:400px;"></video>
         </div>
       </div>
     </div>
