@@ -101,6 +101,9 @@ def run_video_cleanup():
 
 @asynccontextmanager
 async def lifespan(app):
+    # Initialise DB and clean up old sessions
+    init_db()
+    cleanup_old_sessions(30)
     # Run video cleanup on startup
     deleted = run_video_cleanup()
     if deleted:
@@ -153,13 +156,7 @@ app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="stat
 
 # ── Provider status cache (30s TTL) ──────────────────────────────────────────
 _provider_cache = {"data": None, "expires": 0}
-PROVIDER_CACHE_TTL = 30  # seconds
-
-@app.on_event("startup")
-async def startup():
-    init_db()
-    cleanup_old_sessions(30)
-
+PROVIDER_CACHE_TTL = 60  # seconds
 
 # ── Auth Routes ──────────────────────────────────────────────────────────────
 
@@ -373,7 +370,7 @@ async def provider_status():
     async def check_ollama():
         return await check_ollama_health(ollama_url)
 
-    async def check_api_key_provider(url, headers, timeout=8.0):
+    async def check_api_key_provider(url, headers, timeout=15.0):
         """Quick connectivity check — just verifies the endpoint responds."""
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
@@ -395,7 +392,7 @@ async def provider_status():
         if not gemini_key or gemini_key == "••••••••":
             return None
         try:
-            async with httpx.AsyncClient(timeout=8.0) as client:
+            async with httpx.AsyncClient(timeout=15.0) as client:
                 resp = await client.get(
                     f"https://generativelanguage.googleapis.com/v1beta/models?key={gemini_key}"
                 )
@@ -423,7 +420,7 @@ async def provider_status():
         if not gemini_paid_key or gemini_paid_key == "••••••••":
             return None
         try:
-            async with httpx.AsyncClient(timeout=8.0) as client:
+            async with httpx.AsyncClient(timeout=15.0) as client:
                 resp = await client.get(
                     f"https://generativelanguage.googleapis.com/v1beta/models?key={gemini_paid_key}"
                 )
