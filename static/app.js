@@ -37,6 +37,7 @@ function updateThemeUI() {
 initTheme();
 
 document.addEventListener('DOMContentLoaded', async () => {
+  showPage('generate');
   setGreeting();
   await Promise.all([loadHealth(), loadStats(), loadSuggestions(), loadModels(), loadSettings(), loadCurrentUser(), loadBrandLogo(), loadR2Status()]);
   loadRecentContent();
@@ -1617,12 +1618,13 @@ async function wizardGenerate() {
   const provider   = document.getElementById('wizard-ai-provider')?.value || 'gemini';
   const customTopic = document.getElementById('wizard-custom-topic')?.value.trim() || '';
 
+  const chosenTopic = wizardState.topicMode === 'choose' && wizardState.selectedTopicId;
   const body = {
-    mode: 'quick',
+    mode: chosenTopic ? 'manual' : 'quick',
     platforms: [platform],
     ai_provider: provider,
   };
-  if (wizardState.topicMode === 'choose' && wizardState.selectedTopicId) {
+  if (chosenTopic) {
     body.topic_id = wizardState.selectedTopicId;
   }
   if (customTopic) body.custom_topic = customTopic;
@@ -1732,6 +1734,8 @@ async function wizardAutoImages(item) {
     if (!_wizardGeneratedImages.length) throw new Error('No images returned');
 
     if (imgLoad) imgLoad.style.display = 'none';
+    const imgSub = document.getElementById('gen-image-subtitle');
+    if (imgSub) imgSub.textContent = 'Choose an image for your post';
     if (imgGrid) {
       imgGrid.innerHTML = '';
       imgGrid.style.display = 'grid';
@@ -1759,6 +1763,8 @@ async function wizardAutoImages(item) {
     showToast('4 images ready — click to select one', 'success');
   } catch (err) {
     if (imgLoad) imgLoad.style.display = 'none';
+    const imgSubErr = document.getElementById('gen-image-subtitle');
+    if (imgSubErr) imgSubErr.textContent = 'Image generation failed';
     if (imgError) {
       imgError.textContent = `Image generation failed: ${err.message}`;
       imgError.style.display = '';
