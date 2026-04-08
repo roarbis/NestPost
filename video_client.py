@@ -139,7 +139,6 @@ async def generate_video_prompts(
 
     # Parse JSON from response (strip markdown fences if present)
     text = text.strip()
-    print(f"[video_prompts] raw response length={len(text)} first100={repr(text[:100])}")
     if text.startswith("```"):
         # strip ```json or ``` opener
         text = re.sub(r"^```[a-z]*\n?", "", text)
@@ -220,6 +219,8 @@ async def generate_video_veo3(
         resp = await client.post(url, json=payload, headers=headers)
         if resp.status_code == 429:
             return {"status": "rate_limited", "error": "Veo 3 daily free limit reached. Try a paid model or wait."}
+        if resp.status_code == 404:
+            return {"status": "error", "error": "Veo 3 not available on this API key. Request access at ai.google.dev, or use Kling AI / stock footage instead."}
         resp.raise_for_status()
         data = resp.json()
 
