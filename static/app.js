@@ -150,6 +150,8 @@ async function loadRecentContent() {
 async function loadSuggestions() {
   try {
     suggestions = await api('/api/suggestions');
+    // Store topics globally for the V3 wizard topic picker
+    window._topicTemplates = suggestions.topics || [];
     const topicSel = document.getElementById('manual-topic');
     if (topicSel) suggestions.topics.forEach(t => topicSel.appendChild(new Option(t.topic, t.id)));
     const ctSel = document.getElementById('manual-content-type');
@@ -226,9 +228,30 @@ function setGenMode(mode) {
   document.getElementById('gen-loading').style.display = 'none';
 }
 
-async function quickGenerate() {
+async function quickGenerate(platform) {
   showPage('generate');
-  setTimeout(() => runGenerate('quick'), 150);
+  // V3 wizard: pre-select the given platform if provided and scroll to wizard
+  if (platform) {
+    setTimeout(() => {
+      const cards = document.querySelectorAll('#wizard-platform-cards .plat-card');
+      cards.forEach(card => {
+        const isTarget = card.dataset.platform === platform;
+        const indicator = card.querySelector('.plat-check-indicator');
+        const colors = { instagram: '#e1306c', linkedin: '#0a66c2', facebook: '#1877f2' };
+        card.dataset.selected = isTarget ? '1' : '0';
+        card.classList.remove('sel-ig', 'sel-li', 'sel-fb');
+        if (isTarget) {
+          const suffix = platform === 'instagram' ? 'ig' : platform === 'linkedin' ? 'li' : 'fb';
+          card.classList.add(`sel-${suffix}`);
+          if (indicator) { indicator.textContent = '✓ Selected'; indicator.style.color = colors[platform]; indicator.style.fontWeight = '600'; }
+        } else {
+          if (indicator) { indicator.textContent = '+ Select'; indicator.style.color = '#94a3b8'; indicator.style.fontWeight = '500'; }
+        }
+      });
+      updateWizardGenBtn();
+      document.getElementById('wizard-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 150);
+  }
 }
 
 async function runGenerate(mode) {
@@ -1423,6 +1446,561 @@ async function logoutUser() {
   try { await api('/api/logout', 'POST'); } catch { /* ignore */ }
   window.location.href = '/login';
 }
+
+// ── V3 Content Creation Wizard ────────────────────────────────────────────────
+
+let wizardState = { intent: null, duration: 8, topicMode: 'auto', selectedTopicId: null };
+let _wizardTopicsPopulated = false;
+let _wizardCurrentContentId = null;
+let _wizardGeneratedImages = [];
+
+function setWizardIntent(intent) {
+  wizardState.intent = intent;
+
+  const imgCard = document.getElementById('wizard-intent-image');
+  const vidCard = document.getElementById('wizard-intent-video');
+
+  if (imgCard) {
+    imgCard.style.borderColor = intent === 'image' ? '#6366f1' : 'rgba(255,255,255,0.1)';
+    imgCard.style.background  = intent === 'image' ? 'rgba(99,102,241,0.1)' : 'rgba(15,23,42,0.4)';
+  }
+  if (vidCard) {
+    vidCard.style.borderColor = intent === 'video' ? '#ec4899' : 'rgba(255,255,255,0.1)';
+    vidCard.style.background  = intent === 'video' ? 'rgba(236,72,153,0.08)' : 'rgba(15,23,42,0.4)';
+  }
+
+  const durRow = document.getElementById('wizard-duration-row');
+  if (durRow) durRow.style.display = intent === 'video' ? '' : 'none';
+
+  updateWizardGenBtn();
+}
+
+function toggleWizardPlatform(card) {
+  // Single-select: deselect all then select the clicked one
+  const container = document.getElementById('wizard-platform-cards');
+  if (!container) return;
+  const colors = { instagram: '#e1306c', linkedin: '#0a66c2', facebook: '#1877f2' };
+
+  container.querySelectorAll('.plat-card').forEach(c => {
+    const ind = c.querySelector('.plat-check-indicator');
+    c.dataset.selected = '0';
+    c.classList.remove('sel-ig', 'sel-li', 'sel-fb');
+    if (ind) { ind.textContent = '+ Select'; ind.style.color = '#94a3b8'; ind.style.fontWeight = '500'; }
+  });
+
+  const platform = card.dataset.platform;
+  const suffix = platform === 'instagram' ? 'ig' : platform === 'linkedin' ? 'li' : 'fb';
+  card.dataset.selected = '1';
+  card.classList.add(`sel-${suffix}`);
+  const ind = card.querySelector('.plat-check-indicator');
+  if (ind) { ind.textContent = '✓ Selected'; ind.style.color = colors[platform]; ind.style.fontWeight = '600'; }
+
+  updateWizardGenBtn();
+}
+
+function setWizardDuration(dur) {
+  wizardState.duration = dur;
+  [5, 8, 10, 15].forEach(d => {
+    const btn = document.getElementById(`wdur-${d}`);
+    if (!btn) return;
+    const active = d === dur;
+    btn.style.background   = active ? 'rgba(99,102,241,0.15)' : 'transparent';
+    btn.style.color        = active ? '#818cf8' : '#94a3b8';
+    btn.style.borderColor  = active ? '#6366f1' : 'rgba(255,255,255,0.12)';
+    btn.textContent = `${d}s` + (active ? ' ✓' : '');
+  });
+}
+
+function setTopicMode(mode) {
+  wizardState.topicMode = mode;
+  wizardState.selectedTopicId = null;
+
+  const autoCard   = document.getElementById('wizard-topic-auto');
+  const chooseCard = document.getElementById('wizard-topic-choose');
+  const chooser    = document.getElementById('wizard-topic-chooser');
+
+  if (autoCard) {
+    autoCard.style.borderColor = mode === 'auto' ? '#6366f1' : 'rgba(255,255,255,0.1)';
+    autoCard.style.background  = mode === 'auto' ? 'rgba(99,102,241,0.1)' : 'rgba(15,23,42,0.3)';
+  }
+  if (chooseCard) {
+    chooseCard.style.borderColor = mode === 'choose' ? '#6366f1' : 'rgba(255,255,255,0.1)';
+    chooseCard.style.background  = mode === 'choose' ? 'rgba(99,102,241,0.1)' : 'rgba(15,23,42,0.3)';
+  }
+  if (chooser) chooser.style.display = mode === 'choose' ? '' : 'none';
+
+  if (mode === 'choose') populateWizardTopics();
+  updateWizardGenBtn();
+}
+
+function populateWizardTopics() {
+  if (_wizardTopicsPopulated) return;
+  const grid = document.getElementById('wizard-topic-grid');
+  if (!grid) return;
+  const topics = window._topicTemplates || [];
+  if (!topics.length) {
+    grid.innerHTML = '<span style="font-size:0.8rem;color:#64748b;">No topics available — type a custom topic below.</span>';
+    _wizardTopicsPopulated = true;
+    return;
+  }
+  grid.innerHTML = '';
+  topics.forEach(t => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = t.topic;
+    btn.style.cssText = 'padding:6px 14px;border-radius:99px;border:1px solid rgba(255,255,255,0.12);font-size:0.78rem;font-weight:600;background:transparent;color:#94a3b8;cursor:pointer;transition:all 0.15s;';
+    btn.onclick = () => selectWizardTopic(t.id, btn);
+    grid.appendChild(btn);
+  });
+  _wizardTopicsPopulated = true;
+}
+
+function selectWizardTopic(topicId, btn) {
+  wizardState.selectedTopicId = topicId;
+  const grid = document.getElementById('wizard-topic-grid');
+  if (grid) {
+    grid.querySelectorAll('button').forEach(b => {
+      b.style.background   = 'transparent';
+      b.style.color        = '#94a3b8';
+      b.style.borderColor  = 'rgba(255,255,255,0.12)';
+    });
+  }
+  if (btn) {
+    btn.style.background   = 'rgba(99,102,241,0.15)';
+    btn.style.color        = '#a5b4fc';
+    btn.style.borderColor  = '#6366f1';
+  }
+  updateWizardGenBtn();
+}
+
+function updateWizardGenBtn() {
+  const btn  = document.getElementById('wizard-gen-btn');
+  const hint = document.getElementById('wizard-gen-hint');
+  if (!btn) return;
+
+  const platformSelected = !!document.querySelector('#wizard-platform-cards .plat-card[data-selected="1"]');
+  const intentSelected   = !!wizardState.intent;
+
+  const ready = intentSelected && platformSelected;
+  btn.disabled = !ready;
+  btn.style.background    = ready ? '' : 'rgba(99,102,241,0.35)';
+  btn.style.color         = ready ? '' : 'rgba(255,255,255,0.4)';
+  btn.style.cursor        = ready ? 'pointer' : 'not-allowed';
+
+  // Remove inline styles so .btn-primary kicks in when enabled
+  if (ready) {
+    btn.removeAttribute('style');
+    btn.style.display = 'inline-flex';
+    btn.style.alignItems = 'center';
+    btn.style.gap = '8px';
+    btn.style.padding = '13px 28px';
+  }
+
+  if (hint) {
+    if (!intentSelected && !platformSelected) {
+      hint.textContent = 'Select intent + platform to continue';
+    } else if (!intentSelected) {
+      hint.textContent = 'Select Image Post or Video Post above';
+    } else if (!platformSelected) {
+      hint.textContent = 'Select a platform to continue';
+    } else {
+      hint.textContent = wizardState.intent === 'video'
+        ? `Generating ${wizardState.duration}s video post…`
+        : 'Ready — click to generate!';
+    }
+  }
+}
+
+async function wizardGenerate() {
+  const intentCard = document.querySelector('#wizard-platform-cards .plat-card[data-selected="1"]');
+  const platform   = intentCard?.dataset.platform || 'instagram';
+  const provider   = document.getElementById('wizard-ai-provider')?.value || 'gemini';
+  const customTopic = document.getElementById('wizard-custom-topic')?.value.trim() || '';
+
+  const body = {
+    mode: 'quick',
+    platforms: [platform],
+    ai_provider: provider,
+  };
+  if (wizardState.topicMode === 'choose' && wizardState.selectedTopicId) {
+    body.topic_id = wizardState.selectedTopicId;
+  }
+  if (customTopic) body.custom_topic = customTopic;
+
+  // Show loading, hide wizard
+  document.getElementById('wizard-card').style.display = 'none';
+  document.getElementById('gen-loading').style.display = '';
+  document.getElementById('gen-loading-text').textContent = 'Generating your content…';
+  document.getElementById('gen-results').style.display = 'none';
+
+  try {
+    const data = await api('/api/generate', 'POST', body);
+    document.getElementById('gen-loading').style.display = 'none';
+
+    if (data.aifiesta_mode) {
+      showAiFiestaPrompt(data);
+      document.getElementById('gen-results').style.display = '';
+      return;
+    }
+
+    data.errors?.forEach(e => showToast(`${e.platform}: ${e.error}`, 'error'));
+
+    if (data.generated?.length) {
+      showToast(`Generated ${data.generated.length} post${data.generated.length > 1 ? 's' : ''}`, 'success');
+      showWizardResults(data.generated, wizardState.intent, data);
+      loadStats();
+      loadRecentContent();
+    } else {
+      // Nothing generated — show wizard again
+      document.getElementById('wizard-card').style.display = '';
+      showToast('No content generated — try again', 'error');
+    }
+  } catch (err) {
+    document.getElementById('gen-loading').style.display = 'none';
+    document.getElementById('wizard-card').style.display = '';
+    showToast(err.message, 'error');
+  }
+}
+
+function showWizardResults(items, intent, meta) {
+  const results  = document.getElementById('gen-results');
+  const list     = document.getElementById('gen-results-list');
+  const chips    = document.getElementById('gen-meta-chips');
+  const imgSec   = document.getElementById('gen-image-section');
+  const vidSec   = document.getElementById('gen-video-section');
+
+  list.innerHTML = '';
+  if (chips) {
+    if (meta?.topic) {
+      chips.style.display = 'flex';
+      chips.innerHTML = `<span>🎯 <strong>Topic:</strong> ${meta.topic}</span><span style="color:rgba(165,180,252,0.4);">|</span><span><strong>Type:</strong> ${meta.content_type}</span><span style="color:rgba(165,180,252,0.4);">|</span><span><strong>Tone:</strong> ${meta.tone}</span>`;
+    } else {
+      chips.style.display = 'none';
+    }
+  }
+
+  items.forEach(item => list.appendChild(buildContentCard(item, true)));
+  results.style.display = '';
+
+  // Hide both media sections to start
+  if (imgSec) imgSec.style.display = 'none';
+  if (vidSec) vidSec.style.display = 'none';
+
+  if (!items.length) return;
+
+  const firstItem = items[0];
+  _wizardCurrentContentId = firstItem.id;
+
+  if (intent === 'image') {
+    wizardAutoImages(firstItem);
+  } else if (intent === 'video') {
+    wizardAutoVideoPrompts(firstItem);
+  }
+}
+
+async function wizardAutoImages(item) {
+  const imgSec    = document.getElementById('gen-image-section');
+  const imgLoad   = document.getElementById('gen-image-loading');
+  const imgGrid   = document.getElementById('gen-image-grid');
+  const imgError  = document.getElementById('gen-image-error');
+  const imgSaved  = document.getElementById('gen-image-saved');
+
+  if (!imgSec) return;
+  imgSec.style.display = '';
+  if (imgGrid)  { imgGrid.style.display  = 'none'; imgGrid.innerHTML = ''; }
+  if (imgError) { imgError.style.display = 'none'; }
+  if (imgSaved) { imgSaved.style.display = 'none'; }
+  if (imgLoad)  imgLoad.style.display = '';
+
+  imgSec.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  try {
+    // Step 1: Refine the image prompt
+    const refineData = await api('/api/refine-image-prompt', 'POST', { content_id: item.id });
+    const prompt = refineData.prompt || item.image_suggestion || 'A modern smart home scene';
+
+    // Step 2: Generate images
+    const genData = await api('/api/generate-image', 'POST', {
+      content_id: item.id,
+      prompt,
+      provider: 'imagen4',
+      num_images: 4,
+      aspect_ratio: '1:1',
+    });
+
+    _wizardGeneratedImages = genData.images || [];
+    if (!_wizardGeneratedImages.length) throw new Error('No images returned');
+
+    if (imgLoad) imgLoad.style.display = 'none';
+    if (imgGrid) {
+      imgGrid.innerHTML = '';
+      imgGrid.style.display = 'grid';
+      _wizardGeneratedImages.forEach((img, idx) => {
+        const wrap = document.createElement('div');
+        wrap.id = `wiz-img-${idx}`;
+        wrap.style.cssText = 'position:relative;border-radius:12px;overflow:hidden;cursor:pointer;border:3px solid transparent;transition:all 0.2s;';
+        wrap.onmouseover = () => { if (!wrap.dataset.selected) wrap.style.borderColor = 'rgba(165,180,252,0.3)'; };
+        wrap.onmouseout  = () => { if (!wrap.dataset.selected) wrap.style.borderColor = 'transparent'; };
+        wrap.onclick = () => wizardSelectImage(idx, item.id);
+
+        const imgEl = document.createElement('img');
+        imgEl.src = `data:${img.mime_type};base64,${img.base64}`;
+        imgEl.style.cssText = 'width:100%;display:block;aspect-ratio:1;object-fit:cover;';
+        wrap.appendChild(imgEl);
+
+        const badge = document.createElement('div');
+        badge.style.cssText = 'position:absolute;top:8px;left:8px;background:rgba(15,23,42,0.7);border-radius:6px;padding:3px 8px;font-size:0.7rem;font-weight:700;color:#e2e8f0;';
+        badge.textContent = `${idx + 1}`;
+        wrap.appendChild(badge);
+
+        imgGrid.appendChild(wrap);
+      });
+    }
+    showToast('4 images ready — click to select one', 'success');
+  } catch (err) {
+    if (imgLoad) imgLoad.style.display = 'none';
+    if (imgError) {
+      imgError.textContent = `Image generation failed: ${err.message}`;
+      imgError.style.display = '';
+    }
+  }
+}
+
+async function wizardSelectImage(idx, contentId) {
+  const img = _wizardGeneratedImages[idx];
+  if (!img) return;
+
+  // Highlight selection
+  _wizardGeneratedImages.forEach((_, i) => {
+    const wrap = document.getElementById(`wiz-img-${i}`);
+    if (wrap) {
+      wrap.style.borderColor = i === idx ? '#6366f1' : 'transparent';
+      wrap.dataset.selected  = i === idx ? '1' : '';
+    }
+  });
+
+  try {
+    await api('/api/save-image', 'POST', {
+      content_id: contentId,
+      image_base64: img.base64,
+      image_prompt: img.prompt || '',
+      mime_type: img.mime_type || 'image/png',
+    });
+    const savedEl = document.getElementById('gen-image-saved');
+    if (savedEl) savedEl.style.display = '';
+    showToast('Image saved to post', 'success');
+  } catch (err) {
+    showToast(`Save failed: ${err.message}`, 'error');
+  }
+}
+
+async function wizardAutoVideoPrompts(item) {
+  const vidSec   = document.getElementById('gen-video-section');
+  const vidLoad  = document.getElementById('gen-video-loading');
+  const vidPrompts = document.getElementById('gen-video-prompts');
+  const vidError = document.getElementById('gen-video-error');
+
+  if (!vidSec) return;
+  vidSec.style.display = '';
+  if (vidPrompts) { vidPrompts.style.display = 'none'; vidPrompts.innerHTML = ''; }
+  if (vidError)   vidError.style.display = 'none';
+  if (vidLoad)    vidLoad.style.display = '';
+
+  vidSec.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  try {
+    const data = await api('/api/video/suggest-prompts', 'POST', { content_id: item.id });
+    const prompts = data.prompts || [];
+
+    if (vidLoad) vidLoad.style.display = 'none';
+    if (!prompts.length) throw new Error('No prompt suggestions returned');
+
+    if (vidPrompts) {
+      vidPrompts.innerHTML = '';
+      const styles = [
+        { label: 'Cinematic',  color: '#818cf8', bg: 'rgba(99,102,241,0.1)',  border: 'rgba(99,102,241,0.25)'  },
+        { label: 'Dynamic',    color: '#fb923c', bg: 'rgba(251,146,60,0.08)', border: 'rgba(251,146,60,0.25)'  },
+        { label: 'Minimal',    color: '#2dd4bf', bg: 'rgba(45,212,191,0.08)', border: 'rgba(45,212,191,0.25)'  },
+      ];
+      prompts.slice(0, 3).forEach((p, idx) => {
+        const s = styles[idx] || styles[0];
+        const card = document.createElement('div');
+        card.id = `wiz-vprompt-${idx}`;
+        card.style.cssText = `border:2px solid ${s.border};border-radius:12px;padding:16px;cursor:pointer;transition:all 0.2s;background:transparent;`;
+        card.onmouseover = () => { card.style.background = s.bg; };
+        card.onmouseout  = () => { if (!card.dataset.selected) card.style.background = 'transparent'; };
+        card.onclick = () => selectWizardVideoPrompt(idx);
+
+        const promptText = typeof p === 'string' ? p : (p.prompt || p.text || JSON.stringify(p));
+        card.innerHTML = `
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+            <span style="font-size:0.7rem;font-weight:700;padding:3px 10px;border-radius:20px;background:${s.bg};color:${s.color};border:1px solid ${s.border};">${s.label}</span>
+          </div>
+          <div style="font-size:0.82rem;color:#cbd5e1;line-height:1.55;">${promptText}</div>`;
+        card.dataset.prompt = promptText;
+        vidPrompts.appendChild(card);
+      });
+      vidPrompts.style.display = 'flex';
+    }
+    showToast('Video prompts ready — pick a style', 'success');
+  } catch (err) {
+    if (vidLoad) vidLoad.style.display = 'none';
+    if (vidError) {
+      vidError.textContent = `Prompt generation failed: ${err.message}`;
+      vidError.style.display = '';
+    }
+  }
+}
+
+function selectWizardVideoPrompt(idx) {
+  // Highlight selected card
+  for (let i = 0; i < 3; i++) {
+    const c = document.getElementById(`wiz-vprompt-${i}`);
+    if (c) {
+      c.dataset.selected = i === idx ? '1' : '';
+      c.style.borderColor = i === idx ? '#6366f1' : c.style.borderColor;
+      if (i !== idx) c.style.background = 'transparent';
+    }
+  }
+  const selected = document.getElementById(`wiz-vprompt-${idx}`);
+  if (selected) selected.style.background = 'rgba(99,102,241,0.1)';
+
+  // Populate textarea
+  const card = document.getElementById(`wiz-vprompt-${idx}`);
+  const promptText = card?.dataset.prompt || '';
+  const textarea = document.getElementById('gen-video-prompt-text');
+  if (textarea) textarea.value = promptText;
+
+  // Show editor
+  const editor = document.getElementById('gen-video-editor');
+  if (editor) editor.style.display = '';
+  editor?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+async function wizardGenerateVideo() {
+  const contentId  = _wizardCurrentContentId;
+  const prompt     = document.getElementById('gen-video-prompt-text')?.value.trim();
+  const aspect     = document.getElementById('gen-video-aspect')?.value || '9:16';
+  const duration   = wizardState.duration || 8;
+  const vidResult  = document.getElementById('gen-video-result');
+  const vidError   = document.getElementById('gen-video-error');
+  const genBtn     = document.getElementById('gen-video-gen-btn');
+
+  if (!contentId) { showToast('No content ID — please regenerate', 'error'); return; }
+  if (!prompt)    { showToast('Please enter a video prompt', 'error'); return; }
+
+  if (vidResult) vidResult.style.display = 'none';
+  if (vidError)  vidError.style.display = 'none';
+  if (genBtn) { genBtn.disabled = true; genBtn.innerHTML = '<svg class="spin" width="15" height="15" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" opacity="0.25"/><path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg> Generating…'; }
+
+  try {
+    const data = await api('/api/video/generate', 'POST', {
+      content_id: contentId,
+      prompt,
+      provider: 'veo3_free',
+      aspect_ratio: aspect,
+      duration,
+      use_paid: false,
+    });
+
+    // Save the video
+    if (data.video_base64) {
+      await api('/api/video/save', 'POST', {
+        content_id: contentId,
+        video_base64: data.video_base64,
+        video_prompt: prompt,
+        mime_type: data.mime_type || 'video/mp4',
+      });
+    }
+
+    // Show inline video player
+    if (vidResult) {
+      if (data.video_base64) {
+        vidResult.innerHTML = `
+          <div style="border-radius:12px;overflow:hidden;margin-bottom:10px;">
+            <video controls style="width:100%;display:block;border-radius:12px;" src="data:${data.mime_type || 'video/mp4'};base64,${data.video_base64}"></video>
+          </div>
+          <div style="font-size:0.8rem;color:#86efac;font-weight:600;">✓ Video saved to post</div>`;
+      } else {
+        vidResult.innerHTML = `<div style="font-size:0.8rem;color:#86efac;">✓ Video generated and saved</div>`;
+      }
+      vidResult.style.display = '';
+    }
+
+    showToast('Video generated and saved!', 'success');
+    loadStats(); loadRecentContent();
+  } catch (err) {
+    if (vidError) {
+      vidError.textContent = `Video generation failed: ${err.message}`;
+      vidError.style.display = '';
+    }
+    showToast(err.message, 'error');
+  } finally {
+    if (genBtn) {
+      genBtn.disabled = false;
+      genBtn.innerHTML = '<svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3" stroke-width="2"/></svg> Generate Video';
+    }
+  }
+}
+
+function resetWizard() {
+  // Reset state
+  wizardState = { intent: null, duration: 8, topicMode: 'auto', selectedTopicId: null };
+  _wizardCurrentContentId = null;
+  _wizardGeneratedImages  = [];
+
+  // Reset intent cards
+  const imgCard = document.getElementById('wizard-intent-image');
+  const vidCard = document.getElementById('wizard-intent-video');
+  if (imgCard) { imgCard.style.borderColor = 'rgba(255,255,255,0.1)'; imgCard.style.background = 'rgba(15,23,42,0.4)'; }
+  if (vidCard) { vidCard.style.borderColor = 'rgba(255,255,255,0.1)'; vidCard.style.background = 'rgba(15,23,42,0.4)'; }
+
+  // Reset duration row
+  const durRow = document.getElementById('wizard-duration-row');
+  if (durRow) durRow.style.display = 'none';
+  setWizardDuration(8);
+
+  // Reset platform (Instagram pre-selected)
+  const cards = document.querySelectorAll('#wizard-platform-cards .plat-card');
+  const colors = { instagram: '#e1306c', linkedin: '#0a66c2', facebook: '#1877f2' };
+  cards.forEach(card => {
+    const platform = card.dataset.platform;
+    const isIG = platform === 'instagram';
+    const ind = card.querySelector('.plat-check-indicator');
+    card.dataset.selected = isIG ? '1' : '0';
+    card.classList.remove('sel-ig', 'sel-li', 'sel-fb');
+    if (isIG) {
+      card.classList.add('sel-ig');
+      if (ind) { ind.textContent = '✓ Selected'; ind.style.color = colors.instagram; ind.style.fontWeight = '600'; }
+    } else {
+      if (ind) { ind.textContent = '+ Select'; ind.style.color = '#94a3b8'; ind.style.fontWeight = '500'; }
+    }
+  });
+
+  // Reset topic mode
+  setTopicMode('auto');
+  const customInput = document.getElementById('wizard-custom-topic');
+  if (customInput) customInput.value = '';
+
+  // Reset AI provider to Gemini
+  const provSel = document.getElementById('wizard-ai-provider');
+  if (provSel) provSel.value = 'gemini';
+
+  // Reset generate button
+  updateWizardGenBtn();
+
+  // Show wizard, hide results
+  const wizardCard = document.getElementById('wizard-card');
+  const results    = document.getElementById('gen-results');
+  const loading    = document.getElementById('gen-loading');
+  if (wizardCard) wizardCard.style.display = '';
+  if (results)    results.style.display    = 'none';
+  if (loading)    loading.style.display    = 'none';
+
+  wizardCard?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ── End V3 Wizard ─────────────────────────────────────────────────────────────
 
 async function api(url, method = 'GET', body = null) {
   const opts = { method, headers: { 'Content-Type': 'application/json' } };
