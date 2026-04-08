@@ -126,7 +126,7 @@ async def generate_video_prompts(
         f"Generate the three video prompts:"
     )
 
-    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
     payload = {
         "contents": [{"parts": [{"text": f"{system}\n\n{user_prompt}"}]}],
         "generationConfig": {"temperature": 0.8, "maxOutputTokens": 2048},
@@ -139,6 +139,7 @@ async def generate_video_prompts(
 
     # Parse JSON from response (strip markdown fences if present)
     text = text.strip()
+    print(f"[video_prompts] raw response length={len(text)} first100={repr(text[:100])}")
     if text.startswith("```"):
         # strip ```json or ``` opener
         text = re.sub(r"^```[a-z]*\n?", "", text)
