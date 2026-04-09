@@ -497,10 +497,11 @@ async def provider_status():
             "dalle": {"online": status_val(results[7]), "label": "DALL-E 3"},
         },
         "video": {
-            "veo3":   {"online": False, "paid": True,                                                                       "label": "Veo 3.1 (Google)"},
-            "kling":  {"online": bool(get_setting("kling_api_key","")) and bool(get_setting("kling_secret_key","")),      "label": "Kling AI"},
-            "runway": {"online": bool(get_setting("runway_api_key","")),                                                  "label": "Runway Gen-4"},
-            "luma":   {"online": bool(get_setting("luma_api_key","")),                                                    "label": "Luma Dream Machine"},
+            "veo3":   {"online": False,                                                                                    "paid": True,  "label": "Veo 3.1 (Google)"},
+            "kling":  {"online": bool(get_setting("kling_api_key","")) and bool(get_setting("kling_secret_key","")),                    "label": "Kling AI"},
+            "fal":    {"online": bool(get_setting("fal_api_key","")),                                                                   "label": "fal.ai (WAN 2.1)"},
+            "runway": {"online": bool(get_setting("runway_api_key","")),                                                   "paid": True,  "label": "Runway Gen-4"},
+            "luma":   {"online": bool(get_setting("luma_api_key","")),                                                     "paid": True,  "label": "Luma Dream Machine"},
         },
     }
     _provider_cache["data"] = result
@@ -1108,6 +1109,7 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
         "kling_secret": get_setting("kling_secret_key", ""), # Secret Key (SK)
         "runway": get_setting("runway_api_key", ""),
         "luma": get_setting("luma_api_key", ""),
+        "fal": get_setting("fal_api_key", ""),
     }
 
     try:
@@ -1354,6 +1356,7 @@ ENCRYPTED_KEYS = {
     "kling_secret_key",
     "runway_api_key",
     "luma_api_key",
+    "fal_api_key",
     "pexels_api_key",
     "r2_access_key_id",
     "r2_secret_access_key",
@@ -1380,6 +1383,7 @@ SETTINGS_KEYS = [
     "kling_secret_key",
     "runway_api_key",
     "luma_api_key",
+    "fal_api_key",
     "pexels_api_key",
     "default_video_provider",
     # Cloudflare R2 storage

@@ -78,7 +78,7 @@ async function loadHealth() {
     });
     if (data.video) {
       renderProviderStatus('video-provider-status', data.video, {
-        veo3: 'Veo 3.1', kling: 'Kling AI', runway: 'Runway Gen-4', luma: 'Luma',
+        veo3: 'Veo 3.1', kling: 'Kling AI', fal: 'WAN 2.1 (fal)', runway: 'Runway Gen-4', luma: 'Luma',
       });
       // Populate wizard video provider cards
       _buildWizardVideoProviderCards(data.video);
@@ -93,16 +93,17 @@ function _buildWizardVideoProviderCards(videoData) {
   container.innerHTML = '';
 
   // Maps sidebar status key → actual provider ID used by video_client.py
-  const providerIdMap = { veo3: 'veo3_free', kling: 'kling_free', runway: 'runway', luma: 'luma' };
+  const providerIdMap = { veo3: 'veo3_free', kling: 'kling_free', runway: 'runway', luma: 'luma', fal: 'fal_wan' };
   const providerMeta = {
     veo3:   { label: 'Veo 3.1',        icon: '🎬', note: 'Google — Paid only' },
-    kling:  { label: 'Kling AI',      icon: '🎞️', note: '66 free credits/day' },
-    runway: { label: 'Runway Gen-4',  icon: '🚀', note: 'Paid' },
-    luma:   { label: 'Luma Dream',    icon: '✨', note: 'Paid' },
+    kling:  { label: 'Kling AI',       icon: '🎞️', note: '66 free credits/day' },
+    fal:    { label: 'WAN 2.1 (fal)',  icon: '⚡', note: 'Free credits included' },
+    runway: { label: 'Runway Gen-4',   icon: '🚀', note: 'Paid' },
+    luma:   { label: 'Luma Dream',     icon: '✨', note: 'Paid' },
   };
 
-  // Preferred auto-select order: Kling first (has free tier), Veo3 last (needs Google allowlist)
-  const preferredOrder = ['kling', 'runway', 'luma', 'veo3'];
+  // Preferred auto-select order: Kling first, then fal.ai (both free), paid last
+  const preferredOrder = ['kling', 'fal', 'runway', 'luma', 'veo3'];
   const enabledKeys = new Set();
   const cards = {};
 
@@ -110,7 +111,18 @@ function _buildWizardVideoProviderCards(videoData) {
     const providerId = providerIdMap[key] || key;   // e.g. 'kling' → 'kling_free'
     const meta  = providerMeta[key] || { label: key, icon: '🎥', note: '' };
     const ready = info.online;
+    const isPaid = info.paid === true;
     if (ready) enabledKeys.add(key);
+
+    // Status indicator: green = ready, amber = paid (no key), red = no key (free tier)
+    let statusDot, statusLabel;
+    if (ready) {
+      statusDot = '#4ade80'; statusLabel = '● Ready';
+    } else if (isPaid) {
+      statusDot = '#fbbf24'; statusLabel = '● Paid — purchase credits';
+    } else {
+      statusDot = '#ef4444'; statusLabel = '● No key';
+    }
 
     const card = document.createElement('div');
     card.id = `wvp-${key}`;
@@ -119,7 +131,7 @@ function _buildWizardVideoProviderCards(videoData) {
     card.innerHTML = `
       <div style="font-size:1.1rem;margin-bottom:4px;">${meta.icon}</div>
       <div style="font-weight:700;font-size:0.8rem;color:${ready ? '#f1f5f9' : '#475569'};">${meta.label}</div>
-      <div style="font-size:0.68rem;color:${ready ? '#4ade80' : '#ef4444'};margin-top:2px;">${ready ? '● Ready' : '● No key'}</div>
+      <div style="font-size:0.68rem;color:${statusDot};margin-top:2px;">${statusLabel}</div>
       <div style="font-size:0.65rem;color:#64748b;margin-top:1px;">${meta.note}</div>
     `;
     if (ready) card.onclick = () => setWizardVideoProvider(providerId, card);
@@ -127,7 +139,7 @@ function _buildWizardVideoProviderCards(videoData) {
     cards[key] = card;
   });
 
-  // Auto-select preferred available provider (Kling > Runway > Luma > Veo3)
+  // Auto-select preferred available provider (Kling > fal > Runway > Luma > Veo3)
   const autoKey = preferredOrder.find(k => enabledKeys.has(k));
   if (autoKey) {
     wizardState.videoProvider = providerIdMap[autoKey] || autoKey;
@@ -744,7 +756,7 @@ async function loadSettings() {
     if (imgProv && data.default_image_provider) imgProv.value = data.default_image_provider;
     const vidProv = document.getElementById('s-default-video-provider');
     if (vidProv && data.default_video_provider) vidProv.value = data.default_video_provider;
-    const sensitive = ['groq_api_key','gemini_api_key','deepseek_api_key','qwen_api_key','gemini_paid_api_key','stability_api_key','openai_api_key','linkedin_client_id','linkedin_client_secret','linkedin_access_token','facebook_page_id','facebook_access_token','kling_api_key','kling_secret_key','runway_api_key','luma_api_key','pexels_api_key','r2_access_key_id','r2_secret_access_key'];
+    const sensitive = ['groq_api_key','gemini_api_key','deepseek_api_key','qwen_api_key','gemini_paid_api_key','stability_api_key','openai_api_key','linkedin_client_id','linkedin_client_secret','linkedin_access_token','facebook_page_id','facebook_access_token','kling_api_key','kling_secret_key','runway_api_key','luma_api_key','fal_api_key','pexels_api_key','r2_access_key_id','r2_secret_access_key'];
     // Non-sensitive R2 fields
     const r2Fields = { r2_account_id:'s-r2-account-id', r2_bucket_name:'s-r2-bucket-name', r2_public_url:'s-r2-public-url' };
     Object.entries(r2Fields).forEach(([k,id]) => { const el = document.getElementById(id); if (el && data[k]) el.value = data[k]; });
@@ -780,6 +792,7 @@ async function saveSettings() {
     kling_secret_key: document.getElementById('s-kling-secret-key')?.value,
     runway_api_key: document.getElementById('s-runway-api-key')?.value,
     luma_api_key: document.getElementById('s-luma-api-key')?.value,
+    fal_api_key: document.getElementById('s-fal-api-key')?.value,
     pexels_api_key: document.getElementById('s-pexels-api-key')?.value,
     default_video_provider: document.getElementById('s-default-video-provider')?.value,
     r2_account_id: document.getElementById('s-r2-account-id')?.value,

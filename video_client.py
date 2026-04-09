@@ -73,6 +73,30 @@ VIDEO_PROVIDERS = {
         "max_length": 5,
         "quality": 3,
     },
+    "fal_wan": {
+        "name": "WAN 2.1 (fal.ai)",
+        "description": "WAN 2.1 via fal.ai — free credits on sign-up, fast queue",
+        "paid": False,
+        "needs_key": "fal_api_key",
+        "max_length": 5,
+        "quality": 3,
+    },
+    "fal_kling": {
+        "name": "Kling 2.6 (fal.ai)",
+        "description": "Kling 2.6 via fal.ai — excellent motion quality",
+        "paid": False,
+        "needs_key": "fal_api_key",
+        "max_length": 10,
+        "quality": 4,
+    },
+    "fal_hailuo": {
+        "name": "Hailuo (fal.ai)",
+        "description": "MiniMax Hailuo via fal.ai — cinematic quality",
+        "paid": False,
+        "needs_key": "fal_api_key",
+        "max_length": 6,
+        "quality": 4,
+    },
 }
 
 # Aspect ratio options for video
@@ -555,6 +579,129 @@ async def _poll_luma_generation(gen_id: str, api_key: str, max_wait: int = 300) 
     return {"status": "error", "error": "Luma generation timed out (5 min)"}
 
 
+# ── fal.ai (WAN 2.1 / Kling 2.6 / Hailuo) ───────────────────────────────────
+
+# fal.ai model IDs
+_FAL_MODELS = {
+    "fal_wan":    "fal-ai/wan/v2.1/text-to-video",
+    "fal_kling":  "fal-ai/kling-video/v2.6/standard/text-to-video",
+    "fal_hailuo": "fal-ai/hailuo-ai/video-01-live",
+}
+
+# fal.ai aspect ratio aliases (WAN 2.1 uses strings)
+_FAL_ASPECT = {
+    "9:16": "9:16",
+    "16:9": "16:9",
+    "1:1":  "1:1",
+}
+
+
+async def generate_video_fal(
+    prompt: str,
+    api_key: str,
+    provider: str = "fal_wan",
+    aspect_ratio: str = "9:16",
+    duration: int = 5,
+) -> dict:
+    """Generate video via fal.ai queue API (WAN 2.1, Kling 2.6, or Hailuo).
+    Returns {status, video_base64, mime_type} or {status, error}."""
+
+    model = _FAL_MODELS.get(provider, _FAL_MODELS["fal_wan"])
+    base_url = f"https://queue.fal.run/{model}"
+    headers = {
+        "Authorization": f"Key {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    # Build payload — WAN 2.1 and Kling use "duration" as string seconds
+    payload: dict = {
+        "prompt": prompt,
+        "aspect_ratio": _FAL_ASPECT.get(aspect_ratio, "9:16"),
+    }
+    if provider == "fal_wan":
+        payload["duration"] = str(min(duration, 5))   # WAN 2.1 max 5s
+    elif provider == "fal_kling":
+        payload["duration"] = str(min(duration, 10))  # Kling 2.6 max 10s
+    # Hailuo doesn't accept a duration param
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(base_url, json=payload, headers=headers)
+        if resp.status_code == 401:
+            return {"status": "error", "error": "fal.ai: invalid API key — check Settings"}
+        if resp.status_code == 422:
+            return {"status": "error", "error": f"fal.ai: bad request — {resp.text[:200]}"}
+        if resp.status_code == 429:
+            return {"status": "rate_limited", "error": "fal.ai credits exhausted — add credits at fal.ai/dashboard"}
+        resp.raise_for_status()
+        data = resp.json()
+
+    request_id  = data.get("request_id")
+    status_url   = data.get("status_url",   f"{base_url}/requests/{request_id}/status")
+    response_url = data.get("response_url", f"{base_url}/requests/{request_id}")
+
+    if not request_id:
+        return {"status": "error", "error": "fal.ai returned no request_id"}
+
+    return await _poll_fal_request(request_id, status_url, response_url, headers)
+
+
+async def _poll_fal_request(
+    request_id: str,
+    status_url: str,
+    response_url: str,
+    headers: dict,
+    max_wait: int = 300,
+) -> dict:
+    """Poll fal.ai queue until complete, then download the video."""
+    start = time.time()
+    interval = 5.0
+    while time.time() - start < max_wait:
+        await asyncio.sleep(interval)
+        interval = min(interval * 1.5, 30.0)
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(status_url, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+
+        fal_status = data.get("status", "")
+
+        if fal_status == "COMPLETED":
+            # Fetch the result
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                res = await client.get(response_url, headers=headers)
+                res.raise_for_status()
+                result = res.json()
+
+            video_url = (
+                result.get("video", {}).get("url")
+                or (result.get("videos") or [{}])[0].get("url")
+            )
+            if not video_url:
+                return {"status": "error", "error": "fal.ai: no video URL in result"}
+
+            # Download the video
+            async with httpx.AsyncClient(timeout=120.0) as dl_client:
+                dl_resp = await dl_client.get(video_url)
+                dl_resp.raise_for_status()
+                video_b64 = base64.b64encode(dl_resp.content).decode("utf-8")
+
+            return {
+                "status": "complete",
+                "video_base64": video_b64,
+                "video_url": video_url,
+                "mime_type": "video/mp4",
+            }
+
+        if fal_status in ("FAILED", "CANCELLED"):
+            detail = data.get("error") or data.get("detail") or "fal.ai generation failed"
+            return {"status": "error", "error": str(detail)}
+
+        # IN_QUEUE or IN_PROGRESS — keep polling
+
+    return {"status": "error", "error": f"fal.ai generation timed out after {max_wait}s"}
+
+
 # ── Router ────────────────────────────────────────────────────────────────────
 
 async def generate_video(
@@ -592,6 +739,12 @@ async def generate_video(
         if not key:
             raise ValueError("Luma API key required")
         return await generate_video_luma(prompt, key, aspect_ratio, duration)
+
+    elif provider in ("fal_wan", "fal_kling", "fal_hailuo"):
+        key = api_keys.get("fal", "")
+        if not key:
+            raise ValueError("fal.ai API key required — add it in Settings")
+        return await generate_video_fal(prompt, key, provider, aspect_ratio, duration)
 
     else:
         raise ValueError(f"Unknown video provider: {provider}")
