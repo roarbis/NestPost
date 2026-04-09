@@ -1785,19 +1785,51 @@ async function wizardAutoImages(item) {
 
   if (!imgSec) return;
   imgSec.style.display = '';
-  if (imgGrid)  { imgGrid.style.display  = 'none'; imgGrid.innerHTML = ''; }
-  if (imgError) { imgError.style.display = 'none'; }
-  if (imgSaved) { imgSaved.style.display = 'none'; }
-  if (imgLoad)  imgLoad.style.display = '';
+  if (imgGrid)       { imgGrid.style.display  = 'none'; imgGrid.innerHTML = ''; }
+  if (imgError)      { imgError.style.display = 'none'; }
+  if (imgSaved)      { imgSaved.style.display = 'none'; }
+  const imgPromptRow = document.getElementById('gen-image-prompt-row');
+  const imgPromptTA  = document.getElementById('gen-image-prompt');
+  if (imgPromptRow)  imgPromptRow.style.display = 'none';
+  if (imgLoad)       imgLoad.style.display = '';
 
   imgSec.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
   try {
-    // Step 1: Refine the image prompt
+    // Refine the prompt only — don't auto-generate (saves credits)
     const refineData = await api('/api/refine-image-prompt', 'POST', { content_id: item.id });
     const prompt = refineData.prompt || item.image_suggestion || 'A modern smart home scene';
 
-    // Step 2: Generate images
+    if (imgLoad) imgLoad.style.display = 'none';
+    if (imgPromptTA)  imgPromptTA.value = prompt;
+    if (imgPromptRow) imgPromptRow.style.display = '';
+    const imgSub = document.getElementById('gen-image-subtitle');
+    if (imgSub) imgSub.textContent = 'Review the prompt, then generate images';
+  } catch (err) {
+    if (imgLoad) imgLoad.style.display = 'none';
+    // Still show the prompt row with a fallback so user can proceed
+    if (imgPromptTA)  imgPromptTA.value = item.image_suggestion || 'A modern smart home scene';
+    if (imgPromptRow) imgPromptRow.style.display = '';
+  }
+}
+
+async function wizardGenerateImages() {
+  const item    = _wizardCurrentItem;
+  const imgLoad = document.getElementById('gen-image-loading');
+  const imgGrid = document.getElementById('gen-image-grid');
+  const imgError = document.getElementById('gen-image-error');
+  const imgBtn  = document.getElementById('gen-image-btn');
+  const prompt  = document.getElementById('gen-image-prompt')?.value?.trim();
+
+  if (!prompt) { showToast('Enter an image prompt first', 'error'); return; }
+  if (!item)   { showToast('No content — regenerate first', 'error'); return; }
+
+  if (imgError)  imgError.style.display = 'none';
+  if (imgGrid)   { imgGrid.style.display = 'none'; imgGrid.innerHTML = ''; }
+  if (imgLoad)   imgLoad.style.display = '';
+  if (imgBtn)    { imgBtn.disabled = true; imgBtn.textContent = 'Generating…'; }
+
+  try {
     const genData = await api('/api/generate-image', 'POST', {
       content_id: item.id,
       prompt,
@@ -1845,6 +1877,8 @@ async function wizardAutoImages(item) {
       imgError.textContent = `Image generation failed: ${err.message}`;
       imgError.style.display = '';
     }
+  } finally {
+    if (imgBtn) { imgBtn.disabled = false; imgBtn.innerHTML = '<svg width="15" height="15" fill="none" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" stroke-width="2"/><path stroke="currentColor" stroke-width="2" d="M3 15l5-5 4 4 3-3 6 6"/></svg> Generate Images'; }
   }
 }
 
