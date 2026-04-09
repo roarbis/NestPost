@@ -472,7 +472,7 @@ async def provider_status():
             "dalle": {"online": status_val(results[7]), "label": "DALL-E 3"},
         },
         "video": {
-            "veo3":   {"online": bool(gemini_key),                                                                        "label": "Veo 3 (Google)"},
+            "veo3":   {"online": False, "paid": True,                                                                       "label": "Veo 3.1 (Google)"},
             "kling":  {"online": bool(get_setting("kling_api_key","")) and bool(get_setting("kling_secret_key","")),      "label": "Kling AI"},
             "runway": {"online": bool(get_setting("runway_api_key","")),                                                  "label": "Runway Gen-4"},
             "luma":   {"online": bool(get_setting("luma_api_key","")),                                                    "label": "Luma Dream Machine"},

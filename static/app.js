@@ -78,7 +78,7 @@ async function loadHealth() {
     });
     if (data.video) {
       renderProviderStatus('video-provider-status', data.video, {
-        veo3: 'Veo 3', kling: 'Kling AI', runway: 'Runway Gen-4', luma: 'Luma',
+        veo3: 'Veo 3.1', kling: 'Kling AI', runway: 'Runway Gen-4', luma: 'Luma',
       });
       // Populate wizard video provider cards
       _buildWizardVideoProviderCards(data.video);
@@ -95,7 +95,7 @@ function _buildWizardVideoProviderCards(videoData) {
   // Maps sidebar status key → actual provider ID used by video_client.py
   const providerIdMap = { veo3: 'veo3_free', kling: 'kling_free', runway: 'runway', luma: 'luma' };
   const providerMeta = {
-    veo3:   { label: 'Veo 3',         icon: '🎬', note: 'Google (needs allowlist)' },
+    veo3:   { label: 'Veo 3.1',        icon: '🎬', note: 'Google — Paid only' },
     kling:  { label: 'Kling AI',      icon: '🎞️', note: '66 free credits/day' },
     runway: { label: 'Runway Gen-4',  icon: '🚀', note: 'Paid' },
     luma:   { label: 'Luma Dream',    icon: '✨', note: 'Paid' },

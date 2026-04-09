@@ -21,9 +21,9 @@ FFMPEG_PATH = os.environ.get(
 VIDEO_PROVIDERS = {
     # ── Free tier ──
     "veo3_free": {
-        "name": "Veo 3 (Free)",
-        "description": "Google Veo 3 via Gemini API — top quality, free tier ~5-10/day",
-        "paid": False,
+        "name": "Veo 3.1 (Paid)",
+        "description": "Google Veo 3.1 via Gemini API — paid tier only, ~$0.50/sec",
+        "paid": True,
         "needs_key": "gemini_api_key",
         "max_length": 8,
         "quality": 5,
@@ -202,7 +202,7 @@ async def generate_video_veo3(
     Returns {status, video_base64, mime_type} or {status, error}."""
 
     # Veo 3 uses the generateVideos endpoint
-    url = "https://generativelanguage.googleapis.com/v1beta/models/veo-3.0-generate-preview:generateVideos"
+    url = "https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-generate:generateVideos"
 
     payload = {
         "instances": [{"prompt": prompt}],
@@ -223,7 +223,7 @@ async def generate_video_veo3(
         if resp.status_code == 429:
             return {"status": "rate_limited", "error": "Veo 3 daily free limit reached. Try a paid model or wait."}
         if resp.status_code == 404:
-            return {"status": "error", "error": "Veo 3 not available on this API key. Request access at ai.google.dev, or use Kling AI / stock footage instead."}
+            return {"status": "error", "error": "Veo 3.1 requires a paid Gemini API key. Enable billing at aistudio.google.com, or use Kling AI instead."}
         resp.raise_for_status()
         data = resp.json()
 
