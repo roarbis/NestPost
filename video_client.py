@@ -4,6 +4,9 @@ import json
 import re
 import os
 import time
+import hmac
+import hashlib
+import base64
 import logging
 from pathlib import Path
 
@@ -273,9 +276,27 @@ async def _poll_veo_operation(operation_name: str, api_key: str, max_wait: int =
 
 # ── Kling AI ──────────────────────────────────────────────────────────────────
 
+def _kling_jwt(access_key: str, secret_key: str) -> str:
+    """Generate a short-lived HS256 JWT for Kling AI API authentication.
+    Kling requires: iss=accessKey, exp=now+30min, nbf=now-5s, signed with secretKey."""
+    header = base64.urlsafe_b64encode(
+        json.dumps({"alg": "HS256", "typ": "JWT"}, separators=(',', ':')).encode()
+    ).rstrip(b"=").decode()
+    now = int(time.time())
+    payload = base64.urlsafe_b64encode(
+        json.dumps({"iss": access_key, "exp": now + 1800, "nbf": now - 5}, separators=(',', ':')).encode()
+    ).rstrip(b"=").decode()
+    signing_input = f"{header}.{payload}"
+    sig = base64.urlsafe_b64encode(
+        hmac.new(secret_key.encode(), signing_input.encode(), hashlib.sha256).digest()
+    ).rstrip(b"=").decode()
+    return f"{signing_input}.{sig}"
+
+
 async def generate_video_kling(
     prompt: str,
-    api_key: str,
+    access_key: str,
+    secret_key: str,
     aspect_ratio: str = "9:16",
     duration: int = 5,
     mode: str = "std",
@@ -284,9 +305,10 @@ async def generate_video_kling(
     mode: 'std' for standard (free-tier OK), 'pro' for higher quality.
     Returns {status, video_url, video_base64, mime_type} or {status, error}."""
 
+    token = _kling_jwt(access_key, secret_key)
     url = "https://api.klingai.com/v1/videos/text2video"
     headers = {
-        "Authorization": f"Bearer {api_key}",
+        "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
     }
     payload = {
@@ -307,17 +329,19 @@ async def generate_video_kling(
     if not task_id:
         return {"status": "error", "error": "No task_id returned from Kling"}
 
-    return await _poll_kling_task(task_id, api_key)
+    return await _poll_kling_task(task_id, access_key, secret_key)
 
 
-async def _poll_kling_task(task_id: str, api_key: str, max_wait: int = 300) -> dict:
+async def _poll_kling_task(task_id: str, access_key: str, secret_key: str, max_wait: int = 300) -> dict:
     """Poll Kling task until video is ready."""
     url = f"https://api.klingai.com/v1/videos/text2video/{task_id}"
-    headers = {"Authorization": f"Bearer {api_key}"}
 
     start = time.time()
     while time.time() - start < max_wait:
         await asyncio.sleep(5)
+        # Regenerate JWT each poll (30-min TTL, polling can run up to 5 min)
+        token = _kling_jwt(access_key, secret_key)
+        headers = {"Authorization": f"Bearer {token}"}
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.get(url, headers=headers)
             resp.raise_for_status()
@@ -334,7 +358,6 @@ async def _poll_kling_task(task_id: str, api_key: str, max_wait: int = 300) -> d
                 async with httpx.AsyncClient(timeout=60.0) as dl_client:
                     dl_resp = await dl_client.get(video_url)
                     dl_resp.raise_for_status()
-                    import base64
                     video_b64 = base64.b64encode(dl_resp.content).decode("utf-8")
                 return {
                     "status": "complete",
@@ -524,11 +547,12 @@ async def generate_video(
         return await generate_video_veo3(prompt, key, aspect_ratio, duration)
 
     elif provider in ("kling_free", "kling_pro"):
-        key = api_keys.get("kling", "")
-        if not key:
-            raise ValueError("Kling API key required")
+        access_key = api_keys.get("kling_access", "")
+        secret_key = api_keys.get("kling_secret", "")
+        if not access_key or not secret_key:
+            raise ValueError("Kling Access Key and Secret Key are both required")
         mode = "pro" if provider == "kling_pro" else "std"
-        return await generate_video_kling(prompt, key, aspect_ratio, duration, mode)
+        return await generate_video_kling(prompt, access_key, secret_key, aspect_ratio, duration, mode)
 
     elif provider == "runway":
         key = api_keys.get("runway", "")

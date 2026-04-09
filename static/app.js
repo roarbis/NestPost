@@ -673,7 +673,7 @@ async function loadSettings() {
     if (imgProv && data.default_image_provider) imgProv.value = data.default_image_provider;
     const vidProv = document.getElementById('s-default-video-provider');
     if (vidProv && data.default_video_provider) vidProv.value = data.default_video_provider;
-    const sensitive = ['groq_api_key','gemini_api_key','deepseek_api_key','qwen_api_key','gemini_paid_api_key','stability_api_key','openai_api_key','linkedin_client_id','linkedin_client_secret','linkedin_access_token','facebook_page_id','facebook_access_token','kling_api_key','runway_api_key','luma_api_key','pexels_api_key','r2_access_key_id','r2_secret_access_key'];
+    const sensitive = ['groq_api_key','gemini_api_key','deepseek_api_key','qwen_api_key','gemini_paid_api_key','stability_api_key','openai_api_key','linkedin_client_id','linkedin_client_secret','linkedin_access_token','facebook_page_id','facebook_access_token','kling_api_key','kling_secret_key','runway_api_key','luma_api_key','pexels_api_key','r2_access_key_id','r2_secret_access_key'];
     // Non-sensitive R2 fields
     const r2Fields = { r2_account_id:'s-r2-account-id', r2_bucket_name:'s-r2-bucket-name', r2_public_url:'s-r2-public-url' };
     Object.entries(r2Fields).forEach(([k,id]) => { const el = document.getElementById(id); if (el && data[k]) el.value = data[k]; });
@@ -706,6 +706,7 @@ async function saveSettings() {
     facebook_page_id: document.getElementById('s-facebook-page-id')?.value,
     facebook_access_token: document.getElementById('s-facebook-access-token')?.value,
     kling_api_key: document.getElementById('s-kling-api-key')?.value,
+    kling_secret_key: document.getElementById('s-kling-secret-key')?.value,
     runway_api_key: document.getElementById('s-runway-api-key')?.value,
     luma_api_key: document.getElementById('s-luma-api-key')?.value,
     pexels_api_key: document.getElementById('s-pexels-api-key')?.value,

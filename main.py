@@ -1059,7 +1059,8 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
     # Collect video gen API keys
     api_keys = {
         "gemini": get_setting("gemini_api_key", ""),
-        "kling": get_setting("kling_api_key", ""),
+        "kling_access": get_setting("kling_api_key", ""),    # Access Key (AK)
+        "kling_secret": get_setting("kling_secret_key", ""), # Secret Key (SK)
         "runway": get_setting("runway_api_key", ""),
         "luma": get_setting("luma_api_key", ""),
     }
@@ -1303,6 +1304,7 @@ ENCRYPTED_KEYS = {
     "facebook_page_id",
     "facebook_access_token",
     "kling_api_key",
+    "kling_secret_key",
     "runway_api_key",
     "luma_api_key",
     "pexels_api_key",
@@ -1328,6 +1330,7 @@ SETTINGS_KEYS = [
     "facebook_page_id",
     "facebook_access_token",
     "kling_api_key",
+    "kling_secret_key",
     "runway_api_key",
     "luma_api_key",
     "pexels_api_key",
