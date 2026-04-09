@@ -101,12 +101,16 @@ function _buildWizardVideoProviderCards(videoData) {
     luma:   { label: 'Luma Dream',    icon: '✨', note: 'Paid' },
   };
 
-  let firstEnabled = null;
+  // Preferred auto-select order: Kling first (has free tier), Veo3 last (needs Google allowlist)
+  const preferredOrder = ['kling', 'runway', 'luma', 'veo3'];
+  const enabledKeys = new Set();
+  const cards = {};
+
   Object.entries(videoData).forEach(([key, info]) => {
     const providerId = providerIdMap[key] || key;   // e.g. 'kling' → 'kling_free'
     const meta  = providerMeta[key] || { label: key, icon: '🎥', note: '' };
     const ready = info.online;
-    if (ready && !firstEnabled) firstEnabled = providerId;
+    if (ready) enabledKeys.add(key);
 
     const card = document.createElement('div');
     card.id = `wvp-${key}`;
@@ -120,13 +124,15 @@ function _buildWizardVideoProviderCards(videoData) {
     `;
     if (ready) card.onclick = () => setWizardVideoProvider(providerId, card);
     container.appendChild(card);
+    cards[key] = card;
   });
 
-  // Auto-select first available provider
-  if (firstEnabled) {
-    wizardState.videoProvider = firstEnabled;
-    const card = document.getElementById(`wvp-${firstEnabled}`);
-    if (card) card.style.borderColor = '#6366f1', card.style.background = 'rgba(99,102,241,0.15)';
+  // Auto-select preferred available provider (Kling > Runway > Luma > Veo3)
+  const autoKey = preferredOrder.find(k => enabledKeys.has(k));
+  if (autoKey) {
+    wizardState.videoProvider = providerIdMap[autoKey] || autoKey;
+    const autoCard = cards[autoKey];
+    if (autoCard) { autoCard.style.borderColor = '#6366f1'; autoCard.style.background = 'rgba(99,102,241,0.15)'; }
   }
 }
 
@@ -2036,7 +2042,7 @@ async function wizardGenerateVideo() {
 
 function resetWizard() {
   // Reset state
-  wizardState = { intent: null, duration: 8, topicMode: 'auto', selectedTopicId: null, videoProvider: null };
+  wizardState = { intent: null, duration: 10, topicMode: 'auto', selectedTopicId: null, videoProvider: null };
   _wizardCurrentContentId = null;
   _wizardGeneratedImages  = [];
 
