@@ -431,6 +431,14 @@
         </div>
       </div>
     </div>
+    <div style="background:rgba(255,255,255,0.04);border-radius:12px;padding:10px 12px;margin-top:6px;">
+      <div style="color:#475569;font-size:0.6rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px;">Video Providers</div>
+      <div id="video-provider-status" style="display:flex;flex-direction:column;gap:3px;">
+        <div style="display:flex;align-items:center;gap:7px;font-size:0.72rem;color:#64748b;font-weight:500;padding:2px 0;">
+          <span style="width:6px;height:6px;border-radius:50%;background:#475569;display:inline-block;flex-shrink:0;"></span> Loading...
+        </div>
+      </div>
+    </div>
   </div>
 </aside>
 
@@ -622,9 +630,17 @@
         </div>
       </div>
 
-      <!-- Step 5: AI Engine -->
+      <!-- Step 5: Video Provider (video intent only) -->
+      <div id="wizard-video-provider-row" style="display:none;margin-bottom:28px;">
+        <div class="lbl" style="margin-bottom:12px;">Video Provider</div>
+        <div id="wizard-video-provider-cards" style="display:flex;flex-wrap:wrap;gap:10px;">
+          <!-- populated by JS from provider status -->
+        </div>
+      </div>
+
+      <!-- Step 6: Post AI Engine (caption/text model) -->
       <div style="margin-bottom:28px;">
-        <div class="lbl" style="margin-bottom:10px;">AI Engine</div>
+        <div class="lbl" style="margin-bottom:10px;" id="wizard-ai-label">AI Engine</div>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
           <select id="wizard-ai-provider" class="inp" style="max-width:320px;">
             <option value="ollama">🖥️ Ollama (Local — Free)</option>

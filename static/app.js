@@ -76,7 +76,66 @@ async function loadHealth() {
       imagen4: 'Imagen 4', gemini_native: 'Nano Banana', gemini_native_paid: 'Nano Banana 2',
       stability: 'Stability AI', dalle: 'DALL-E 3',
     });
+    if (data.video) {
+      renderProviderStatus('video-provider-status', data.video, {
+        veo3: 'Veo 3', kling: 'Kling AI', runway: 'Runway Gen-4', luma: 'Luma',
+      });
+      // Populate wizard video provider cards
+      _buildWizardVideoProviderCards(data.video);
+    }
   } catch { /* silent */ }
+}
+
+// Build video provider pill-cards for the wizard
+function _buildWizardVideoProviderCards(videoData) {
+  const container = document.getElementById('wizard-video-provider-cards');
+  if (!container) return;
+  container.innerHTML = '';
+
+  const providerMeta = {
+    veo3:   { label: 'Veo 3',         icon: '🎬', note: 'Google (needs allowlist)' },
+    kling:  { label: 'Kling AI',      icon: '🎞️', note: '66 free credits/day' },
+    runway: { label: 'Runway Gen-4',  icon: '🚀', note: 'Paid' },
+    luma:   { label: 'Luma Dream',    icon: '✨', note: 'Paid' },
+  };
+
+  let firstEnabled = null;
+  Object.entries(videoData).forEach(([key, info]) => {
+    const meta  = providerMeta[key] || { label: key, icon: '🎥', note: '' };
+    const ready = info.online;
+    if (ready && !firstEnabled) firstEnabled = key;
+
+    const card = document.createElement('div');
+    card.id = `wvp-${key}`;
+    card.dataset.provider = key;
+    card.style.cssText = `padding:10px 16px;border-radius:10px;border:2px solid ${ready ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.05)'};background:${ready ? 'rgba(15,23,42,0.4)' : 'rgba(15,23,42,0.2)'};cursor:${ready ? 'pointer' : 'not-allowed'};transition:all 0.15s;opacity:${ready ? '1' : '0.4'};min-width:120px;`;
+    card.innerHTML = `
+      <div style="font-size:1.1rem;margin-bottom:4px;">${meta.icon}</div>
+      <div style="font-weight:700;font-size:0.8rem;color:${ready ? '#f1f5f9' : '#475569'};">${meta.label}</div>
+      <div style="font-size:0.68rem;color:${ready ? '#4ade80' : '#ef4444'};margin-top:2px;">${ready ? '● Ready' : '● No key'}</div>
+      <div style="font-size:0.65rem;color:#64748b;margin-top:1px;">${meta.note}</div>
+    `;
+    if (ready) card.onclick = () => setWizardVideoProvider(key, card);
+    container.appendChild(card);
+  });
+
+  // Auto-select first available provider
+  if (firstEnabled) {
+    wizardState.videoProvider = firstEnabled;
+    const card = document.getElementById(`wvp-${firstEnabled}`);
+    if (card) card.style.borderColor = '#6366f1', card.style.background = 'rgba(99,102,241,0.15)';
+  }
+}
+
+function setWizardVideoProvider(provider, card) {
+  wizardState.videoProvider = provider;
+  document.querySelectorAll('#wizard-video-provider-cards > div').forEach(c => {
+    c.style.borderColor = 'rgba(255,255,255,0.12)';
+    c.style.background  = 'rgba(15,23,42,0.4)';
+  });
+  card.style.borderColor = '#6366f1';
+  card.style.background  = 'rgba(99,102,241,0.15)';
+  updateWizardGenBtn();
 }
 
 function renderProviderStatus(containerId, providers, labels) {
@@ -1451,7 +1510,7 @@ async function logoutUser() {
 
 // ── V3 Content Creation Wizard ────────────────────────────────────────────────
 
-let wizardState = { intent: null, duration: 8, topicMode: 'auto', selectedTopicId: null };
+let wizardState = { intent: null, duration: 8, topicMode: 'auto', selectedTopicId: null, videoProvider: null };
 let _wizardTopicsPopulated = false;
 let _wizardCurrentContentId = null;
 let _wizardGeneratedImages = [];
@@ -1473,6 +1532,12 @@ function setWizardIntent(intent) {
 
   const durRow = document.getElementById('wizard-duration-row');
   if (durRow) durRow.style.display = intent === 'video' ? '' : 'none';
+
+  const vidProvRow = document.getElementById('wizard-video-provider-row');
+  if (vidProvRow) vidProvRow.style.display = intent === 'video' ? '' : 'none';
+
+  const aiLabel = document.getElementById('wizard-ai-label');
+  if (aiLabel) aiLabel.textContent = intent === 'video' ? 'Caption AI Engine' : 'AI Engine';
 
   updateWizardGenBtn();
 }
@@ -1607,7 +1672,7 @@ function updateWizardGenBtn() {
       hint.textContent = 'Select a platform to continue';
     } else {
       hint.textContent = wizardState.intent === 'video'
-        ? `Generating ${wizardState.duration}s video post…`
+        ? `Ready — generate ${wizardState.duration}s ${wizardState.videoProvider ? `with ${wizardState.videoProvider.replace('_', ' ')}` : 'video'}`
         : 'Ready — click to generate!';
     }
   }
@@ -1896,19 +1961,32 @@ async function wizardGenerateVideo() {
   if (!contentId) { showToast('No content ID — please regenerate', 'error'); return; }
   if (!prompt)    { showToast('Please enter a video prompt', 'error'); return; }
 
+  const provider = wizardState.videoProvider || 'kling_free';
+  if (!wizardState.videoProvider) {
+    showToast('Select a video provider above first', 'error'); return;
+  }
+
   if (vidResult) vidResult.style.display = 'none';
   if (vidError)  vidError.style.display = 'none';
-  if (genBtn) { genBtn.disabled = true; genBtn.innerHTML = '<svg class="spin" width="15" height="15" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" opacity="0.25"/><path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg> Generating…'; }
+
+  // Start elapsed timer on button
+  let elapsedSec = 0;
+  const elapsedTimer = setInterval(() => {
+    elapsedSec++;
+    if (genBtn) genBtn.innerHTML = `<svg class="spin" width="15" height="15" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" opacity="0.25"/><path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg> Generating… ${elapsedSec}s`;
+  }, 1000);
+  if (genBtn) { genBtn.disabled = true; genBtn.innerHTML = '<svg class="spin" width="15" height="15" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" opacity="0.25"/><path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg> Generating… 0s'; }
 
   try {
     const data = await api('/api/video/generate', 'POST', {
       content_id: contentId,
       prompt,
-      provider: 'veo3_free',
+      provider,
       aspect_ratio: aspect,
       duration,
-      use_paid: false,
+      use_paid: provider.endsWith('_pro') || provider.endsWith('_paid'),
     });
+    clearInterval(elapsedTimer);
 
     // Save the video
     if (data.video_base64) {
@@ -1937,12 +2015,14 @@ async function wizardGenerateVideo() {
     showToast('Video generated and saved!', 'success');
     loadStats(); loadRecentContent();
   } catch (err) {
+    clearInterval(elapsedTimer);
     if (vidError) {
       vidError.textContent = `Video generation failed: ${err.message}`;
       vidError.style.display = '';
     }
     showToast(err.message, 'error');
   } finally {
+    clearInterval(elapsedTimer);
     if (genBtn) {
       genBtn.disabled = false;
       genBtn.innerHTML = '<svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3" stroke-width="2"/></svg> Generate Video';
@@ -1952,7 +2032,7 @@ async function wizardGenerateVideo() {
 
 function resetWizard() {
   // Reset state
-  wizardState = { intent: null, duration: 8, topicMode: 'auto', selectedTopicId: null };
+  wizardState = { intent: null, duration: 8, topicMode: 'auto', selectedTopicId: null, videoProvider: null };
   _wizardCurrentContentId = null;
   _wizardGeneratedImages  = [];
 
