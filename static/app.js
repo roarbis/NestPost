@@ -605,6 +605,9 @@ async function openModal(id) {
     } else {
       savedVideoSection.style.display = 'none';
     }
+    // Show video section only if post already has a video; otherwise hide (use Video Post wizard instead)
+    const modalVideoSection = document.getElementById('modal-video-section');
+    if (modalVideoSection) modalVideoSection.style.display = item.video_path ? '' : 'none';
     window._generatedVideoB64 = null;
     window._generatedVideoMime = null;
 
@@ -1814,15 +1817,15 @@ async function wizardAutoImages(item) {
 }
 
 async function wizardGenerateImages() {
-  const item    = _wizardCurrentItem;
+  const contentId = _wizardCurrentContentId;
   const imgLoad = document.getElementById('gen-image-loading');
   const imgGrid = document.getElementById('gen-image-grid');
   const imgError = document.getElementById('gen-image-error');
   const imgBtn  = document.getElementById('gen-image-btn');
   const prompt  = document.getElementById('gen-image-prompt')?.value?.trim();
 
-  if (!prompt) { showToast('Enter an image prompt first', 'error'); return; }
-  if (!item)   { showToast('No content — regenerate first', 'error'); return; }
+  if (!prompt)     { showToast('Enter an image prompt first', 'error'); return; }
+  if (!contentId)  { showToast('No content — regenerate first', 'error'); return; }
 
   if (imgError)  imgError.style.display = 'none';
   if (imgGrid)   { imgGrid.style.display = 'none'; imgGrid.innerHTML = ''; }
@@ -1831,7 +1834,7 @@ async function wizardGenerateImages() {
 
   try {
     const genData = await api('/api/generate-image', 'POST', {
-      content_id: item.id,
+      content_id: contentId,
       prompt,
       provider: 'imagen4',
       num_images: 4,
@@ -1853,7 +1856,7 @@ async function wizardGenerateImages() {
         wrap.style.cssText = 'position:relative;border-radius:12px;overflow:hidden;cursor:pointer;border:3px solid transparent;transition:all 0.2s;';
         wrap.onmouseover = () => { if (!wrap.dataset.selected) wrap.style.borderColor = 'rgba(165,180,252,0.3)'; };
         wrap.onmouseout  = () => { if (!wrap.dataset.selected) wrap.style.borderColor = 'transparent'; };
-        wrap.onclick = () => wizardSelectImage(idx, item.id);
+        wrap.onclick = () => wizardSelectImage(idx, contentId);
 
         const imgEl = document.createElement('img');
         imgEl.src = `data:${img.mime_type};base64,${img.base64}`;
