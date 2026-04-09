@@ -581,11 +581,11 @@ async def _poll_luma_generation(gen_id: str, api_key: str, max_wait: int = 300) 
 
 # ── fal.ai (WAN 2.1 / Kling 2.6 / Hailuo) ───────────────────────────────────
 
-# fal.ai model IDs
+# fal.ai model IDs  (keep aligned with fal.ai /models catalogue)
 _FAL_MODELS = {
-    "fal_wan":    "fal-ai/wan/v2.1/text-to-video",
-    "fal_kling":  "fal-ai/kling-video/v2.6/standard/text-to-video",
-    "fal_hailuo": "fal-ai/hailuo-ai/video-01-live",
+    "fal_wan":    "fal-ai/wan/v2.1/text-to-video",   # WAN 2.1 T2V
+    "fal_kling":  "fal-ai/kling-video/v2.1/standard/text-to-video",  # Kling via fal
+    "fal_hailuo": "fal-ai/minimax/video-01-live",     # MiniMax Hailuo via fal
 }
 
 # fal.ai aspect ratio aliases (WAN 2.1 uses strings)
@@ -613,25 +613,27 @@ async def generate_video_fal(
         "Content-Type": "application/json",
     }
 
-    # Build payload — WAN 2.1 and Kling use "duration" as string seconds
+    # Build payload — duration must be integer for fal.ai models
     payload: dict = {
         "prompt": prompt,
         "aspect_ratio": _FAL_ASPECT.get(aspect_ratio, "9:16"),
     }
     if provider == "fal_wan":
-        payload["duration"] = str(min(duration, 5))   # WAN 2.1 max 5s
+        payload["duration"] = min(duration, 5)    # WAN 2.1 max 5s — integer required
     elif provider == "fal_kling":
-        payload["duration"] = str(min(duration, 10))  # Kling 2.6 max 10s
-    # Hailuo doesn't accept a duration param
+        payload["duration"] = min(duration, 10)   # Kling via fal max 10s — integer required
+    # Hailuo / MiniMax doesn't accept a duration param
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(base_url, json=payload, headers=headers)
         if resp.status_code == 401:
             return {"status": "error", "error": "fal.ai: invalid API key — check Settings"}
+        if resp.status_code == 403:
+            return {"status": "error", "error": "fal.ai: access denied (403) — ensure a payment method is added at fal.ai/dashboard, even for free-credit accounts"}
         if resp.status_code == 422:
             return {"status": "error", "error": f"fal.ai: bad request — {resp.text[:200]}"}
         if resp.status_code == 429:
-            return {"status": "rate_limited", "error": "fal.ai credits exhausted — add credits at fal.ai/dashboard"}
+            return {"status": "rate_limited", "error": "fal.ai credits exhausted — top up at fal.ai/dashboard"}
         resp.raise_for_status()
         data = resp.json()
 
