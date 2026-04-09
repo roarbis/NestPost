@@ -364,7 +364,12 @@ async def generate_video_kling(
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(url, json=payload, headers=headers)
         if resp.status_code == 429:
-            return {"status": "rate_limited", "error": "Kling daily limit reached."}
+            # Include raw body — helps distinguish daily-limit vs account-credits-exhausted
+            try:
+                detail = resp.json().get("message") or resp.json().get("error") or resp.text[:300]
+            except Exception:
+                detail = resp.text[:300]
+            return {"status": "rate_limited", "error": f"Kling 429 — {detail}. Free credits reset at 00:00 Beijing time (UTC+8)."}
         if resp.status_code == 400:
             return {"status": "error", "error": f"Kling API error: {resp.text}"}
         resp.raise_for_status()

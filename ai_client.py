@@ -117,15 +117,23 @@ async def call_groq(prompt_system: str, prompt_user: str, api_key: str, model: s
 async def call_gemini(prompt_system: str, prompt_user: str, api_key: str) -> str:
     if not api_key or not api_key.strip():
         raise ValueError("Gemini API key not configured — add it in Settings")
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
     payload = {
         "contents": [{"parts": [{"text": f"{prompt_system}\n\n{prompt_user}"}]}],
         "generationConfig": {"temperature": 0.8},
     }
+    # Try gemini-2.5-flash first (better quality); fall back to 2.0-flash on 503
+    models = ["gemini-2.5-flash", "gemini-2.0-flash"]
+    last_err: Exception | None = None
     async with httpx.AsyncClient(timeout=60.0) as client:
-        resp = await client.post(url, json=payload)
-        resp.raise_for_status()
-        return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+        for model in models:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+            resp = await client.post(url, json=payload)
+            if resp.status_code == 503 and model != models[-1]:
+                last_err = httpx.HTTPStatusError(f"{model} 503", request=resp.request, response=resp)
+                continue  # retry with next model
+            resp.raise_for_status()
+            return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+    raise last_err  # all models failed
 
 
 async def call_deepseek(prompt_system: str, prompt_user: str, api_key: str) -> str:
