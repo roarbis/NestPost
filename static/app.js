@@ -1839,6 +1839,7 @@ async function wizardGenerateImages() {
       provider: 'imagen4',
       num_images: 4,
       aspect_ratio: '1:1',
+      idempotency_key: crypto.randomUUID(),
     });
 
     _wizardGeneratedImages = genData.images || [];
@@ -2032,6 +2033,7 @@ async function wizardGenerateVideo() {
       aspect_ratio: aspect,
       duration,
       use_paid: provider.endsWith('_pro') || provider.endsWith('_paid'),
+      idempotency_key: crypto.randomUUID(),
     });
     clearInterval(elapsedTimer);
 

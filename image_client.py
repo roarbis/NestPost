@@ -1,3 +1,4 @@
+import asyncio
 import httpx
 import base64
 import json
@@ -202,22 +203,22 @@ async def generate_images_stability(
         "Accept": "application/json",
     }
 
-    images = []
-    for _ in range(min(num_images, 4)):
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            resp = await client.post(
-                url,
-                headers=headers,
-                data={
-                    "prompt": prompt,
-                    "output_format": "png",
-                    "aspect_ratio": aspect_ratio,
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            if "image" in data:
-                images.append({"base64": data["image"], "mime_type": "image/png"})
+    async def _single_stability_request(client: httpx.AsyncClient) -> dict | None:
+        resp = await client.post(
+            url,
+            headers=headers,
+            data={"prompt": prompt, "output_format": "png", "aspect_ratio": aspect_ratio},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return {"base64": data["image"], "mime_type": "image/png"} if "image" in data else None
+
+    # Fire all requests in parallel — one shared client for connection reuse
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        tasks = [_single_stability_request(client) for _ in range(min(num_images, 4))]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    images = [r for r in results if isinstance(r, dict)]
     return images
 
 
@@ -248,14 +249,19 @@ async def generate_images_dalle(
         "response_format": "b64_json",
     }
 
-    images = []
-    async with httpx.AsyncClient(timeout=120.0) as client:
+    # DALL-E 3 only supports n=1 per call; run num_images calls in parallel
+    async def _single_dalle_request(client: httpx.AsyncClient) -> dict | None:
         resp = await client.post(url, json=payload, headers=headers)
         resp.raise_for_status()
         data = resp.json()
-        for img in data.get("data", []):
-            images.append({"base64": img["b64_json"], "mime_type": "image/png"})
-    return images
+        imgs = data.get("data", [])
+        return {"base64": imgs[0]["b64_json"], "mime_type": "image/png"} if imgs else None
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        tasks = [_single_dalle_request(client) for _ in range(min(num_images, 4))]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    return [r for r in results if isinstance(r, dict)]
 
 
 async def generate_images(

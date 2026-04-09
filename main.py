@@ -156,7 +156,32 @@ app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="stat
 
 # ── Provider status cache (30s TTL) ──────────────────────────────────────────
 _provider_cache = {"data": None, "expires": 0}
-PROVIDER_CACHE_TTL = 60  # seconds
+PROVIDER_CACHE_TTL = 300  # seconds (5 min — provider keys rarely change)
+
+# ── Request deduplication (prevents double-click double-charge) ───────────────
+# Maps idempotency_key → (timestamp, cached_response). Expires after 30s.
+_idem_cache: dict[str, tuple[float, dict]] = {}
+_IDEM_TTL = 30  # seconds
+
+def _check_idempotency(key: str | None) -> dict | None:
+    """Return cached response if key was seen within TTL, else None."""
+    if not key:
+        return None
+    entry = _idem_cache.get(key)
+    if entry and time.time() - entry[0] < _IDEM_TTL:
+        return entry[1]
+    return None
+
+def _store_idempotency(key: str | None, response: dict) -> None:
+    """Cache response against idempotency key. Prune old entries."""
+    if not key:
+        return
+    now = time.time()
+    _idem_cache[key] = (now, response)
+    # Prune expired entries to keep memory tidy
+    for k in list(_idem_cache):
+        if now - _idem_cache[k][0] >= _IDEM_TTL:
+            del _idem_cache[k]
 
 # ── Auth Routes ──────────────────────────────────────────────────────────────
 
@@ -844,13 +869,19 @@ class GenerateImageRequest(BaseModel):
     content_id: int
     prompt: str
     provider: str = "imagen4"
-    num_images: int = 4
+    num_images: int = 2  # default 2 to save API credits; user can request up to 4
     aspect_ratio: str = "1:1"
+    idempotency_key: Optional[str] = None
 
 
 @app.post("/api/generate-image")
 async def generate_image(req: GenerateImageRequest):
     """Generate images for a content item. Returns base64 images for selection."""
+    # Dedup: return cached result if same idempotency_key seen within 30s
+    cached = _check_idempotency(req.idempotency_key)
+    if cached:
+        return cached
+
     conn = get_conn()
     row = conn.execute(f"SELECT {CONTENT_COLS} FROM content WHERE id = ?", (req.content_id,)).fetchone()
     conn.close()
@@ -873,12 +904,14 @@ async def generate_image(req: GenerateImageRequest):
             num_images=req.num_images,
             aspect_ratio=req.aspect_ratio,
         )
-        return {
+        result = {
             "images": images,
             "count": len(images),
             "provider": req.provider,
             "prompt": req.prompt,
         }
+        _store_idempotency(req.idempotency_key, result)
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Image generation failed: {str(e)}")
 
@@ -1050,12 +1083,18 @@ class GenerateVideoRequest(BaseModel):
     aspect_ratio: str = "9:16"
     duration: int = 8
     use_paid: bool = False
+    idempotency_key: Optional[str] = None
 
 
 @app.post("/api/video/generate")
 async def generate_video_endpoint(req: GenerateVideoRequest):
     """Generate a video from a prompt using the selected provider.
     Returns {status, video_base64, mime_type} on success."""
+    # Dedup: video generation is expensive — block duplicate clicks within 30s
+    cached = _check_idempotency(req.idempotency_key)
+    if cached:
+        return cached
+
     conn = get_conn()
     row = conn.execute(f"SELECT {CONTENT_COLS} FROM content WHERE id = ?", (req.content_id,)).fetchone()
     conn.close()
@@ -1086,13 +1125,15 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
         if result.get("status") != "complete":
             raise HTTPException(status_code=500, detail=result.get("error", "Video generation failed"))
 
-        return {
+        video_result = {
             "status": "complete",
             "video_base64": result["video_base64"],
             "mime_type": result.get("mime_type", "video/mp4"),
             "provider": req.provider,
             "prompt": req.prompt,
         }
+        _store_idempotency(req.idempotency_key, video_result)
+        return video_result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

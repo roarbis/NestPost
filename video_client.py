@@ -12,6 +12,10 @@ from pathlib import Path
 
 logger = logging.getLogger("nestpost")
 
+# ── Pexels search cache (saves repeated identical queries) ────────────────────
+_PEXELS_CACHE: dict[str, tuple[float, list]] = {}  # key → (timestamp, results)
+_PEXELS_CACHE_TTL = 86400  # 24 hours
+
 FFMPEG_PATH = os.environ.get(
     "FFMPEG_PATH", str(Path(__file__).parent.parent / "ffmpeg" / "ffmpeg.exe")
 )
@@ -160,6 +164,13 @@ async def search_stock_footage(
     per_page: int = 5,
 ) -> list[dict]:
     """Search Pexels for stock video footage. Returns list of {id, url, preview, duration, width, height}."""
+    # Check cache first — Pexels results don't change hour-to-hour
+    cache_key = f"{query}|{orientation}|{per_page}"
+    cached = _PEXELS_CACHE.get(cache_key)
+    if cached and time.time() - cached[0] < _PEXELS_CACHE_TTL:
+        logger.info(f"Pexels cache hit for '{query}'")
+        return cached[1]
+
     url = "https://api.pexels.com/videos/search"
     headers = {"Authorization": api_key}
     params = {"query": query, "orientation": orientation, "per_page": per_page, "size": "medium"}
@@ -187,6 +198,8 @@ async def search_stock_footage(
                 "width": best_file.get("width", 0),
                 "height": best_file.get("height", 0),
             })
+
+    _PEXELS_CACHE[cache_key] = (time.time(), results)
     return results
 
 
@@ -251,8 +264,10 @@ async def _poll_veo_operation(operation_name: str, api_key: str, max_wait: int =
     headers = {"x-goog-api-key": api_key}
 
     start = time.time()
+    interval = 5.0  # exponential backoff: 5 → 7.5 → 11.25 → … max 30s
     while time.time() - start < max_wait:
-        await asyncio.sleep(5)
+        await asyncio.sleep(interval)
+        interval = min(interval * 1.5, 30.0)
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.get(url, headers=headers)
             resp.raise_for_status()
@@ -343,8 +358,10 @@ async def _poll_kling_task(task_id: str, access_key: str, secret_key: str, max_w
     url = f"https://api.klingai.com/v1/videos/text2video/{task_id}"
 
     start = time.time()
+    interval = 5.0
     while time.time() - start < max_wait:
-        await asyncio.sleep(5)
+        await asyncio.sleep(interval)
+        interval = min(interval * 1.5, 30.0)
         # Regenerate JWT each poll (30-min TTL, polling can run up to 5 min)
         token = _kling_jwt(access_key, secret_key)
         headers = {"Authorization": f"Bearer {token}"}
@@ -433,8 +450,10 @@ async def _poll_runway_task(task_id: str, api_key: str, max_wait: int = 300) -> 
     }
 
     start = time.time()
+    interval = 5.0
     while time.time() - start < max_wait:
-        await asyncio.sleep(5)
+        await asyncio.sleep(interval)
+        interval = min(interval * 1.5, 30.0)
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.get(url, headers=headers)
             resp.raise_for_status()
@@ -504,8 +523,10 @@ async def _poll_luma_generation(gen_id: str, api_key: str, max_wait: int = 300) 
     headers = {"Authorization": f"Bearer {api_key}"}
 
     start = time.time()
+    interval = 5.0
     while time.time() - start < max_wait:
-        await asyncio.sleep(5)
+        await asyncio.sleep(interval)
+        interval = min(interval * 1.5, 30.0)
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.get(url, headers=headers)
             resp.raise_for_status()
