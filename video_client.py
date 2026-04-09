@@ -311,10 +311,14 @@ async def generate_video_kling(
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
     }
+    # Kling only accepts "5" or "10" — round to nearest valid value
+    kling_duration = "5" if duration <= 5 else "10"
+
     payload = {
+        "model_name": "kling-v1",   # required field
         "prompt": prompt,
         "aspect_ratio": aspect_ratio,
-        "duration": str(min(duration, 10)),
+        "duration": kling_duration,
         "mode": mode,
     }
 
@@ -322,6 +326,8 @@ async def generate_video_kling(
         resp = await client.post(url, json=payload, headers=headers)
         if resp.status_code == 429:
             return {"status": "rate_limited", "error": "Kling daily limit reached."}
+        if resp.status_code == 400:
+            return {"status": "error", "error": f"Kling API error: {resp.text}"}
         resp.raise_for_status()
         data = resp.json()
 

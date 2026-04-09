@@ -1513,7 +1513,7 @@ async function logoutUser() {
 
 // ── V3 Content Creation Wizard ────────────────────────────────────────────────
 
-let wizardState = { intent: null, duration: 8, topicMode: 'auto', selectedTopicId: null, videoProvider: null };
+let wizardState = { intent: null, duration: 10, topicMode: 'auto', selectedTopicId: null, videoProvider: null };
 let _wizardTopicsPopulated = false;
 let _wizardCurrentContentId = null;
 let _wizardGeneratedImages = [];
@@ -1570,7 +1570,7 @@ function toggleWizardPlatform(card) {
 
 function setWizardDuration(dur) {
   wizardState.duration = dur;
-  [5, 8, 10, 15].forEach(d => {
+  [5, 10].forEach(d => {
     const btn = document.getElementById(`wdur-${d}`);
     if (!btn) return;
     const active = d === dur;
@@ -1579,6 +1579,7 @@ function setWizardDuration(dur) {
     btn.style.borderColor  = active ? '#6366f1' : 'rgba(255,255,255,0.12)';
     btn.textContent = `${d}s` + (active ? ' ✓' : '');
   });
+  updateWizardGenBtn();
 }
 
 function setTopicMode(mode) {
@@ -2048,7 +2049,7 @@ function resetWizard() {
   // Reset duration row
   const durRow = document.getElementById('wizard-duration-row');
   if (durRow) durRow.style.display = 'none';
-  setWizardDuration(8);
+  setWizardDuration(10);
 
   // Reset platform (Instagram pre-selected)
   const cards = document.querySelectorAll('#wizard-platform-cards .plat-card');

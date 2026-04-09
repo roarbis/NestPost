@@ -598,12 +598,13 @@
 
       <!-- Step 3: Video duration (video intent only) -->
       <div id="wizard-duration-row" style="display:none;margin-bottom:28px;">
-        <div class="lbl" style="margin-bottom:12px;">Video Length</div>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+          <div class="lbl" style="margin-bottom:0;">Video Length</div>
+          <span id="wizard-duration-note" style="font-size:0.68rem;color:#64748b;"></span>
+        </div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;">
           <button id="wdur-5"  onclick="setWizardDuration(5)"  style="padding:8px 18px;border-radius:99px;border:1px solid rgba(255,255,255,0.12);background:transparent;color:#94a3b8;font-size:0.85rem;font-weight:600;cursor:pointer;transition:all 0.15s;">5s</button>
-          <button id="wdur-8"  onclick="setWizardDuration(8)"  style="padding:8px 18px;border-radius:99px;border:1px solid #6366f1;background:rgba(99,102,241,0.15);color:#818cf8;font-size:0.85rem;font-weight:600;cursor:pointer;transition:all 0.15s;">8s ✓</button>
-          <button id="wdur-10" onclick="setWizardDuration(10)" style="padding:8px 18px;border-radius:99px;border:1px solid rgba(255,255,255,0.12);background:transparent;color:#94a3b8;font-size:0.85rem;font-weight:600;cursor:pointer;transition:all 0.15s;">10s</button>
-          <button id="wdur-15" onclick="setWizardDuration(15)" style="padding:8px 18px;border-radius:99px;border:1px solid rgba(255,255,255,0.12);background:transparent;color:#94a3b8;font-size:0.85rem;font-weight:600;cursor:pointer;transition:all 0.15s;">15s</button>
+          <button id="wdur-10" onclick="setWizardDuration(10)" style="padding:8px 18px;border-radius:99px;border:1px solid #6366f1;background:rgba(99,102,241,0.15);color:#818cf8;font-size:0.85rem;font-weight:600;cursor:pointer;transition:all 0.15s;">10s ✓</button>
         </div>
       </div>
 
