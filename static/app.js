@@ -92,6 +92,8 @@ function _buildWizardVideoProviderCards(videoData) {
   if (!container) return;
   container.innerHTML = '';
 
+  // Maps sidebar status key → actual provider ID used by video_client.py
+  const providerIdMap = { veo3: 'veo3_free', kling: 'kling_free', runway: 'runway', luma: 'luma' };
   const providerMeta = {
     veo3:   { label: 'Veo 3',         icon: '🎬', note: 'Google (needs allowlist)' },
     kling:  { label: 'Kling AI',      icon: '🎞️', note: '66 free credits/day' },
@@ -101,13 +103,14 @@ function _buildWizardVideoProviderCards(videoData) {
 
   let firstEnabled = null;
   Object.entries(videoData).forEach(([key, info]) => {
+    const providerId = providerIdMap[key] || key;   // e.g. 'kling' → 'kling_free'
     const meta  = providerMeta[key] || { label: key, icon: '🎥', note: '' };
     const ready = info.online;
-    if (ready && !firstEnabled) firstEnabled = key;
+    if (ready && !firstEnabled) firstEnabled = providerId;
 
     const card = document.createElement('div');
     card.id = `wvp-${key}`;
-    card.dataset.provider = key;
+    card.dataset.provider = providerId;
     card.style.cssText = `padding:10px 16px;border-radius:10px;border:2px solid ${ready ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.05)'};background:${ready ? 'rgba(15,23,42,0.4)' : 'rgba(15,23,42,0.2)'};cursor:${ready ? 'pointer' : 'not-allowed'};transition:all 0.15s;opacity:${ready ? '1' : '0.4'};min-width:120px;`;
     card.innerHTML = `
       <div style="font-size:1.1rem;margin-bottom:4px;">${meta.icon}</div>
@@ -115,7 +118,7 @@ function _buildWizardVideoProviderCards(videoData) {
       <div style="font-size:0.68rem;color:${ready ? '#4ade80' : '#ef4444'};margin-top:2px;">${ready ? '● Ready' : '● No key'}</div>
       <div style="font-size:0.65rem;color:#64748b;margin-top:1px;">${meta.note}</div>
     `;
-    if (ready) card.onclick = () => setWizardVideoProvider(key, card);
+    if (ready) card.onclick = () => setWizardVideoProvider(providerId, card);
     container.appendChild(card);
   });
 
