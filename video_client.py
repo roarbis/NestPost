@@ -75,7 +75,7 @@ VIDEO_PROVIDERS = {
     },
     "fal_wan": {
         "name": "WAN 2.1 (fal.ai)",
-        "description": "WAN 2.1 via fal.ai — free credits on sign-up, fast queue",
+        "description": "WAN 2.1 via fal.ai — ~$0.20/gen at 480p, purchase credits at fal.ai/dashboard/billing",
         "paid": False,
         "needs_key": "fal_api_key",
         "max_length": 5,
@@ -583,9 +583,9 @@ async def _poll_luma_generation(gen_id: str, api_key: str, max_wait: int = 300) 
 
 # fal.ai model IDs  (keep aligned with fal.ai /models catalogue)
 _FAL_MODELS = {
-    "fal_wan":    "fal-ai/wan/v2.1/text-to-video",   # WAN 2.1 T2V
+    "fal_wan":    "fal-ai/wan-t2v",                                   # WAN 2.1 standard T2V
     "fal_kling":  "fal-ai/kling-video/v2.1/standard/text-to-video",  # Kling via fal
-    "fal_hailuo": "fal-ai/minimax/video-01-live",     # MiniMax Hailuo via fal
+    "fal_hailuo": "fal-ai/minimax/video-01-live",                     # MiniMax Hailuo via fal
 }
 
 # fal.ai aspect ratio aliases (WAN 2.1 uses strings)
@@ -629,7 +629,7 @@ async def generate_video_fal(
         if resp.status_code == 401:
             return {"status": "error", "error": "fal.ai: invalid API key — check Settings"}
         if resp.status_code == 403:
-            return {"status": "error", "error": "fal.ai: access denied (403) — ensure a payment method is added at fal.ai/dashboard, even for free-credit accounts"}
+            return {"status": "error", "error": "fal.ai: account credit balance is zero or locked — go to fal.ai/dashboard/billing and purchase credits (from $0.20/generation). Adding a payment method alone does not top up your balance."}
         if resp.status_code == 422:
             return {"status": "error", "error": f"fal.ai: bad request — {resp.text[:200]}"}
         if resp.status_code == 429:
