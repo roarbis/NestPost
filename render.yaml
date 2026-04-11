@@ -1,9 +1,12 @@
 services:
+  # ── Production ────────────────────────────────────────────────────────────────
   - type: web
     name: nestpost
     runtime: python
+    branch: main
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    autoDeploy: true
     envVars:
       - key: TURSO_DATABASE_URL
         sync: false
@@ -13,3 +16,23 @@ services:
         sync: false
       - key: PYTHON_VERSION
         value: "3.13.0"
+
+  # ── Staging ───────────────────────────────────────────────────────────────────
+  - type: web
+    name: nestpost-staging
+    runtime: python
+    branch: staging
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    autoDeploy: true
+    envVars:
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
+      - key: FERNET_KEY
+        sync: false
+      - key: PYTHON_VERSION
+        value: "3.13.0"
+      - key: APP_ENV
+        value: staging
