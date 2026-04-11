@@ -1589,24 +1589,26 @@ function setWizardIntent(intent) {
 }
 
 function toggleWizardPlatform(card) {
-  // Single-select: deselect all then select the clicked one
-  const container = document.getElementById('wizard-platform-cards');
-  if (!container) return;
+  // Multi-select: toggle the clicked card
   const colors = { instagram: '#e1306c', linkedin: '#0a66c2', facebook: '#1877f2' };
-
-  container.querySelectorAll('.plat-card').forEach(c => {
-    const ind = c.querySelector('.plat-check-indicator');
-    c.dataset.selected = '0';
-    c.classList.remove('sel-ig', 'sel-li', 'sel-fb');
-    if (ind) { ind.textContent = '+ Select'; ind.style.color = '#94a3b8'; ind.style.fontWeight = '500'; }
-  });
-
   const platform = card.dataset.platform;
   const suffix = platform === 'instagram' ? 'ig' : platform === 'linkedin' ? 'li' : 'fb';
-  card.dataset.selected = '1';
-  card.classList.add(`sel-${suffix}`);
+  const isSelected = card.dataset.selected === '1';
   const ind = card.querySelector('.plat-check-indicator');
-  if (ind) { ind.textContent = '✓ Selected'; ind.style.color = colors[platform]; ind.style.fontWeight = '600'; }
+
+  if (isSelected) {
+    // Deselect — but keep at least one selected
+    const container = document.getElementById('wizard-platform-cards');
+    const selectedCount = container.querySelectorAll('.plat-card[data-selected="1"]').length;
+    if (selectedCount <= 1) return; // prevent zero selection
+    card.dataset.selected = '0';
+    card.classList.remove(`sel-${suffix}`);
+    if (ind) { ind.textContent = '+ Select'; ind.style.color = '#94a3b8'; ind.style.fontWeight = '500'; }
+  } else {
+    card.dataset.selected = '1';
+    card.classList.add(`sel-${suffix}`);
+    if (ind) { ind.textContent = '✓ Selected'; ind.style.color = colors[platform]; ind.style.fontWeight = '600'; }
+  }
 
   updateWizardGenBtn();
 }
@@ -1728,12 +1730,16 @@ function updateWizardGenBtn() {
 function onVariantModeChange() {
   const mode = document.getElementById('wizard-variant-mode')?.value || 'auto';
   const wrap = document.getElementById('wizard-pick-format-wrap');
-  if (wrap) wrap.style.display = (mode === 'pick') ? 'flex' : 'none';
+  if (!wrap) return;
+  wrap.style.display = (mode === 'pick') ? 'flex' : 'none';
+  wrap.style.flexDirection = 'column';
 }
 
 async function wizardGenerate() {
-  const intentCard = document.querySelector('#wizard-platform-cards .plat-card[data-selected="1"]');
-  const platform   = intentCard?.dataset.platform || 'instagram';
+  const selectedCards = document.querySelectorAll('#wizard-platform-cards .plat-card[data-selected="1"]');
+  const platforms = selectedCards.length
+    ? [...selectedCards].map(c => c.dataset.platform)
+    : ['instagram'];
   const provider   = document.getElementById('wizard-ai-provider')?.value || 'gemini';
   const customTopic = document.getElementById('wizard-custom-topic')?.value.trim() || '';
 
@@ -1743,7 +1749,7 @@ async function wizardGenerate() {
   const emojiDensity  = document.getElementById('wizard-emoji-density')?.value || 'balanced';
   const body = {
     mode: chosenTopic ? 'manual' : 'quick',
-    platforms: [platform],
+    platforms,
     ai_provider: provider,
     variant_mode: variantMode,
     emoji_density: emojiDensity,
@@ -1956,9 +1962,12 @@ async function wizardSelectImage(idx, contentId) {
       image_prompt: img.prompt || '',
       mime_type: img.mime_type || 'image/png',
     });
-    const savedEl = document.getElementById('gen-image-saved');
-    if (savedEl) savedEl.style.display = '';
-    showToast('Image saved to post', 'success');
+    showToast('Image saved — opening post…', 'success');
+    // Navigate directly to the post view modal
+    setTimeout(() => {
+      showPage('library');
+      openModal(contentId);
+    }, 600);
   } catch (err) {
     showToast(`Save failed: ${err.message}`, 'error');
   }
@@ -2171,6 +2180,11 @@ function resetWizard() {
   // Reset AI provider to Gemini
   const provSel = document.getElementById('wizard-ai-provider');
   if (provSel) provSel.value = 'gemini';
+
+  // Reset variant mode to auto and hide pick-format dropdown
+  const variantSel = document.getElementById('wizard-variant-mode');
+  if (variantSel) variantSel.value = 'auto';
+  onVariantModeChange();
 
   // Reset generate button
   updateWizardGenBtn();
