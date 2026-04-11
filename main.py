@@ -511,6 +511,7 @@ async def provider_status():
             "veo3":   {"online": False,                                                                                    "paid": True,  "label": "Veo 3.1 (Google)"},
             "kling":  {"online": bool(get_setting("kling_api_key","")) and bool(get_setting("kling_secret_key","")),                    "label": "Kling AI"},
             "fal":    {"online": bool(get_setting("fal_api_key","")),                                                                   "label": "fal.ai (WAN 2.1)"},
+            "atlascloud_video": {"online": bool(get_setting("atlascloud_api_key","")),          "paid": True,                          "label": "Atlas Cloud Video"},
             "runway": {"online": bool(get_setting("runway_api_key","")),                                                   "paid": True,  "label": "Runway Gen-4"},
             "luma":   {"online": bool(get_setting("luma_api_key","")),                                                     "paid": True,  "label": "Luma Dream Machine"},
         },
@@ -1181,6 +1182,8 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
         "runway": get_setting("runway_api_key", ""),
         "luma": get_setting("luma_api_key", ""),
         "fal": get_setting("fal_api_key", ""),
+        "atlascloud": get_setting("atlascloud_api_key", ""),
+        "atlascloud_video_model": get_setting("atlascloud_video_model", "kwaivgi/kling-v3.0-pro/text-to-video"),
     }
 
     try:
@@ -1444,6 +1447,7 @@ SETTINGS_KEYS = [
     "qwen_api_key",
     "atlascloud_api_key",
     "atlascloud_model",
+    "atlascloud_video_model",
     "gemini_paid_api_key",
     "stability_api_key",
     "openai_api_key",
