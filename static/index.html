@@ -376,7 +376,7 @@
           <div style="color:#fff;font-weight:700;font-size:0.9375rem;line-height:1.2;">NestPost</div>
           <span id="env-badge" style="display:none;font-size:0.58rem;font-weight:800;letter-spacing:0.08em;padding:2px 6px;border-radius:4px;background:#fbbf24;color:#78350f;text-transform:uppercase;">STAGING</span>
         </div>
-        <div style="color:#64748b;font-size:0.7rem;font-weight:500;">by ConnectNest</div>
+        <div style="color:#64748b;font-size:0.7rem;font-weight:500;">by ConnectNest &nbsp;<span id="app-version" style="opacity:0.5;"></span></div>
       </div>
     </div>
   </div>
@@ -415,34 +415,36 @@
         Log Out
       </div>
     </div>
+
+    <!-- Provider status panels — inline so all visible without scrolling -->
+    <div style="padding:10px 2px 8px;">
+      <div style="background:rgba(255,255,255,0.04);border-radius:12px;padding:9px 12px;">
+        <div style="color:#475569;font-size:0.6rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px;">Text Providers</div>
+        <div id="text-provider-status" style="display:flex;flex-direction:column;gap:3px;">
+          <div style="display:flex;align-items:center;gap:7px;font-size:0.72rem;color:#64748b;font-weight:500;padding:2px 0;">
+            <span style="width:6px;height:6px;border-radius:50%;background:#475569;display:inline-block;flex-shrink:0;"></span> Loading...
+          </div>
+        </div>
+      </div>
+      <div style="background:rgba(255,255,255,0.04);border-radius:12px;padding:9px 12px;margin-top:5px;">
+        <div style="color:#475569;font-size:0.6rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px;">Image Providers</div>
+        <div id="image-provider-status" style="display:flex;flex-direction:column;gap:3px;">
+          <div style="display:flex;align-items:center;gap:7px;font-size:0.72rem;color:#64748b;font-weight:500;padding:2px 0;">
+            <span style="width:6px;height:6px;border-radius:50%;background:#475569;display:inline-block;flex-shrink:0;"></span> Loading...
+          </div>
+        </div>
+      </div>
+      <div style="background:rgba(255,255,255,0.04);border-radius:12px;padding:9px 12px;margin-top:5px;">
+        <div style="color:#475569;font-size:0.6rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px;">Video Providers</div>
+        <div id="video-provider-status" style="display:flex;flex-direction:column;gap:3px;">
+          <div style="display:flex;align-items:center;gap:7px;font-size:0.72rem;color:#64748b;font-weight:500;padding:2px 0;">
+            <span style="width:6px;height:6px;border-radius:50%;background:#475569;display:inline-block;flex-shrink:0;"></span> Loading...
+          </div>
+        </div>
+      </div>
+    </div>
   </nav>
 
-  <div style="padding:10px 16px 18px; border-top:1px solid rgba(255,255,255,0.07);overflow-y:auto;max-height:340px;">
-    <div style="background:rgba(255,255,255,0.04);border-radius:12px;padding:10px 12px;">
-      <div style="color:#475569;font-size:0.6rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px;">Text Providers</div>
-      <div id="text-provider-status" style="display:flex;flex-direction:column;gap:3px;">
-        <div style="display:flex;align-items:center;gap:7px;font-size:0.72rem;color:#64748b;font-weight:500;padding:2px 0;">
-          <span style="width:6px;height:6px;border-radius:50%;background:#475569;display:inline-block;flex-shrink:0;"></span> Loading...
-        </div>
-      </div>
-    </div>
-    <div style="background:rgba(255,255,255,0.04);border-radius:12px;padding:10px 12px;margin-top:6px;">
-      <div style="color:#475569;font-size:0.6rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px;">Image Providers</div>
-      <div id="image-provider-status" style="display:flex;flex-direction:column;gap:3px;">
-        <div style="display:flex;align-items:center;gap:7px;font-size:0.72rem;color:#64748b;font-weight:500;padding:2px 0;">
-          <span style="width:6px;height:6px;border-radius:50%;background:#475569;display:inline-block;flex-shrink:0;"></span> Loading...
-        </div>
-      </div>
-    </div>
-    <div style="background:rgba(255,255,255,0.04);border-radius:12px;padding:10px 12px;margin-top:6px;">
-      <div style="color:#475569;font-size:0.6rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px;">Video Providers</div>
-      <div id="video-provider-status" style="display:flex;flex-direction:column;gap:3px;">
-        <div style="display:flex;align-items:center;gap:7px;font-size:0.72rem;color:#64748b;font-weight:500;padding:2px 0;">
-          <span style="width:6px;height:6px;border-radius:50%;background:#475569;display:inline-block;flex-shrink:0;"></span> Loading...
-        </div>
-      </div>
-    </div>
-  </div>
 </aside>
 
 <main style="flex:1;overflow-y:auto;display:flex;flex-direction:column;">
@@ -642,6 +644,43 @@
         </div>
       </div>
 
+      <!-- Step 5b: Post Format + Emoji Density -->
+      <div style="margin-bottom:28px;">
+        <div class="lbl" style="margin-bottom:10px;">Post Style</div>
+        <div style="display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;">
+          <div style="display:flex;flex-direction:column;gap:4px;min-width:240px;">
+            <label style="font-size:0.7rem;color:#64748b;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;">Format</label>
+            <select id="wizard-variant-mode" class="inp" onchange="onVariantModeChange()">
+              <option value="auto" selected>✨ Auto generate format</option>
+              <option value="pick">🎯 Pick format</option>
+              <option value="multi">🎨 Choice of multiple formats (3× tokens)</option>
+            </select>
+          </div>
+          <div id="wizard-pick-format-wrap" style="display:none;flex-direction:column;gap:4px;min-width:240px;">
+            <label style="font-size:0.7rem;color:#64748b;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;">Specific format</label>
+            <select id="wizard-post-format" class="inp">
+              <option value="classic_paragraph">📝 Classic Paragraph</option>
+              <option value="bullet_list">• Bullet List</option>
+              <option value="bold_headline">💥 Bold Headline</option>
+              <option value="before_after">🔄 Before / After</option>
+              <option value="question_hook">❓ Question Hook</option>
+              <option value="stat_lead">📊 Stat Lead</option>
+              <option value="mini_story">📖 Mini Story</option>
+              <option value="tip_of_day">💡 Tip of the Day</option>
+            </select>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:4px;min-width:200px;">
+            <label style="font-size:0.7rem;color:#64748b;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;">Emoji density</label>
+            <select id="wizard-emoji-density" class="inp">
+              <option value="heavy">🔥 Heavy</option>
+              <option value="balanced" selected>⚖️ Balanced</option>
+              <option value="light">🌱 Light</option>
+              <option value="none">⬜ None</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
       <!-- Step 6: Post AI Engine (caption/text model) -->
       <div style="margin-bottom:28px;">
         <div class="lbl" style="margin-bottom:10px;" id="wizard-ai-label">AI Engine</div>
@@ -652,6 +691,7 @@
             <option value="gemini" selected>✨ Gemini</option>
             <option value="deepseek">🔍 Deepseek</option>
             <option value="qwen">🌐 Qwen</option>
+            <option value="atlascloud">☁️ Atlas Cloud (300+ models)</option>
           </select>
         </div>
       </div>
@@ -881,6 +921,17 @@
             <label class="lbl">Qwen API Key</label>
             <input id="s-qwen-api-key" class="inp" type="password" placeholder="sk-..." />
           </div>
+          <div>
+            <label class="lbl">Atlas Cloud API Key <span style="color:#38bdf8;font-weight:600;font-size:0.7rem;background:rgba(56,189,248,0.12);padding:2px 7px;border-radius:99px;margin-left:4px;">300+ Models</span></label>
+            <input id="s-atlascloud-api-key" class="inp" type="password" placeholder="API key from atlascloud.ai/console" />
+          </div>
+          <div>
+            <label class="lbl" style="display:flex;align-items:center;gap:6px;">Atlas Cloud Model
+              <span style="font-size:0.7rem;color:#64748b;font-weight:400;">(default: deepseek-v3)</span>
+            </label>
+            <input id="s-atlascloud-model" class="inp" type="text" placeholder="deepseek-v3" style="max-width:280px;" />
+            <div style="font-size:0.72rem;color:#475569;margin-top:4px;">Other options: qwen-plus, kimi-latest, glm-4-plus, claude-3-5-sonnet, gpt-4o</div>
+          </div>
         </div>
       </div>
     </div>
@@ -943,6 +994,11 @@
           <div><label class="lbl">Runway API Key <span style="color:#fbbf24;font-weight:600;font-size:0.7rem;background:rgba(251,191,36,0.12);padding:2px 7px;border-radius:99px;margin-left:4px;">Paid</span></label><input id="s-runway-api-key" class="inp" type="password" placeholder="Runway API key" /></div>
           <div><label class="lbl">Luma API Key <span style="color:#fbbf24;font-weight:600;font-size:0.7rem;background:rgba(251,191,36,0.12);padding:2px 7px;border-radius:99px;margin-left:4px;">Paid</span></label><input id="s-luma-api-key" class="inp" type="password" placeholder="Luma API key from lumalabs.ai" /></div>
           <div><label class="lbl">Pexels API Key <span style="color:#2dd4bf;font-weight:600;font-size:0.7rem;background:rgba(45,212,191,0.12);padding:2px 7px;border-radius:99px;margin-left:4px;">Free</span></label><input id="s-pexels-api-key" class="inp" type="password" placeholder="Pexels API key for stock footage (free at pexels.com/api)" /></div>
+          <div>
+            <label class="lbl">Atlas Cloud Video Model <span style="color:#38bdf8;font-weight:600;font-size:0.7rem;background:rgba(56,189,248,0.12);padding:2px 7px;border-radius:99px;margin-left:4px;">Uses Atlas Cloud Key</span></label>
+            <input id="s-atlascloud-video-model" class="inp" type="text" placeholder="kwaivgi/kling-v3.0-pro/text-to-video" />
+            <div style="font-size:0.72rem;color:#475569;margin-top:4px;">Enter any Atlas Cloud video model ID. Find models at atlascloud.ai/models — uses the same API key as Atlas Cloud text.</div>
+          </div>
         </div>
       </div>
     </div>
@@ -1292,6 +1348,7 @@
               <optgroup label="Paid">
                 <option value="veo3_paid">Veo 3 (Paid)</option>
                 <option value="kling_pro">Kling AI Pro</option>
+                <option value="atlascloud_video">☁️ Atlas Cloud Video</option>
                 <option value="runway">Runway Gen-4</option>
                 <option value="luma">Luma Dream Machine</option>
               </optgroup>

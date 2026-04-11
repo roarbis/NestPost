@@ -93,17 +93,18 @@ function _buildWizardVideoProviderCards(videoData) {
   container.innerHTML = '';
 
   // Maps sidebar status key → actual provider ID used by video_client.py
-  const providerIdMap = { veo3: 'veo3_free', kling: 'kling_free', runway: 'runway', luma: 'luma', fal: 'fal_wan' };
+  const providerIdMap = { veo3: 'veo3_free', kling: 'kling_free', runway: 'runway', luma: 'luma', fal: 'fal_wan', atlascloud_video: 'atlascloud_video' };
   const providerMeta = {
-    veo3:   { label: 'Veo 3.1',        icon: '🎬', note: 'Google — Paid only' },
-    kling:  { label: 'Kling AI',       icon: '🎞️', note: '66 free credits/day' },
-    fal:    { label: 'WAN 2.1 (fal)',  icon: '⚡', note: 'Free credits included' },
-    runway: { label: 'Runway Gen-4',   icon: '🚀', note: 'Paid' },
-    luma:   { label: 'Luma Dream',     icon: '✨', note: 'Paid' },
+    veo3:             { label: 'Veo 3.1',           icon: '🎬', note: 'Google — Paid only' },
+    kling:            { label: 'Kling AI',          icon: '🎞️', note: 'Standard credits' },
+    fal:              { label: 'WAN 2.1 (fal)',     icon: '⚡', note: 'Free credits included' },
+    runway:           { label: 'Runway Gen-4',      icon: '🚀', note: 'Paid' },
+    luma:             { label: 'Luma Dream',        icon: '✨', note: 'Paid' },
+    atlascloud_video: { label: 'Atlas Cloud Video', icon: '☁️', note: 'Kling 3.0 Pro & more' },
   };
 
-  // Preferred auto-select order: Kling first, then fal.ai (both free), paid last
-  const preferredOrder = ['kling', 'fal', 'runway', 'luma', 'veo3'];
+  // Preferred auto-select order: Atlas Cloud > Kling > fal > paid providers
+  const preferredOrder = ['atlascloud_video', 'kling', 'fal', 'runway', 'luma', 'veo3'];
   const enabledKeys = new Set();
   const cards = {};
 
@@ -617,9 +618,9 @@ async function openModal(id) {
     } else {
       savedVideoSection.style.display = 'none';
     }
-    // Show video section only if post already has a video; otherwise hide (use Video Post wizard instead)
+    // Always show video section so users can generate video from any post
     const modalVideoSection = document.getElementById('modal-video-section');
-    if (modalVideoSection) modalVideoSection.style.display = item.video_path ? '' : 'none';
+    if (modalVideoSection) modalVideoSection.style.display = '';
     window._generatedVideoB64 = null;
     window._generatedVideoMime = null;
 
@@ -756,7 +757,12 @@ async function loadSettings() {
     if (imgProv && data.default_image_provider) imgProv.value = data.default_image_provider;
     const vidProv = document.getElementById('s-default-video-provider');
     if (vidProv && data.default_video_provider) vidProv.value = data.default_video_provider;
-    const sensitive = ['groq_api_key','gemini_api_key','deepseek_api_key','qwen_api_key','gemini_paid_api_key','stability_api_key','openai_api_key','linkedin_client_id','linkedin_client_secret','linkedin_access_token','facebook_page_id','facebook_access_token','kling_api_key','kling_secret_key','runway_api_key','luma_api_key','fal_api_key','pexels_api_key','r2_access_key_id','r2_secret_access_key'];
+    // Load non-sensitive Atlas Cloud model name
+    const acModel = document.getElementById('s-atlascloud-model');
+    if (acModel && data.atlascloud_model) acModel.value = data.atlascloud_model;
+    const acVideoModel = document.getElementById('s-atlascloud-video-model');
+    if (acVideoModel && data.atlascloud_video_model) acVideoModel.value = data.atlascloud_video_model;
+    const sensitive = ['groq_api_key','gemini_api_key','deepseek_api_key','qwen_api_key','atlascloud_api_key','gemini_paid_api_key','stability_api_key','openai_api_key','linkedin_client_id','linkedin_client_secret','linkedin_access_token','facebook_page_id','facebook_access_token','kling_api_key','kling_secret_key','runway_api_key','luma_api_key','fal_api_key','pexels_api_key','r2_access_key_id','r2_secret_access_key'];
     // Non-sensitive R2 fields
     const r2Fields = { r2_account_id:'s-r2-account-id', r2_bucket_name:'s-r2-bucket-name', r2_public_url:'s-r2-public-url' };
     Object.entries(r2Fields).forEach(([k,id]) => { const el = document.getElementById(id); if (el && data[k]) el.value = data[k]; });
@@ -779,6 +785,9 @@ async function saveSettings() {
     gemini_api_key: document.getElementById('s-gemini-api-key')?.value,
     deepseek_api_key: document.getElementById('s-deepseek-api-key')?.value,
     qwen_api_key: document.getElementById('s-qwen-api-key')?.value,
+    atlascloud_api_key: document.getElementById('s-atlascloud-api-key')?.value,
+    atlascloud_model: document.getElementById('s-atlascloud-model')?.value,
+    atlascloud_video_model: document.getElementById('s-atlascloud-video-model')?.value,
     gemini_paid_api_key: document.getElementById('s-gemini-paid-api-key')?.value,
     stability_api_key: document.getElementById('s-stability-api-key')?.value,
     openai_api_key: document.getElementById('s-openai-api-key')?.value,
@@ -1196,6 +1205,7 @@ function updateVideoModelInfo() {
     veo3_paid:  { text: 'Uses your Gemini API key — full quality, $0.50/sec', color: '#fbbf24' },
     kling_free: { text: 'Uses Kling API key — 66 free credits/day, 720p watermarked', color: '#2dd4bf' },
     kling_pro:  { text: 'Uses Kling API key — 1080p, no watermark', color: '#fbbf24' },
+    atlascloud_video: { text: 'Uses Atlas Cloud API key — model configurable in Settings (Kling 3.0 Pro by default)', color: '#38bdf8' },
     runway:     { text: 'Uses Runway API key — $0.05-0.10/sec, strong character coherence', color: '#fbbf24' },
     luma:       { text: 'Uses Luma API key — $0.20/video, good for product reveals', color: '#fbbf24' },
   };
@@ -1429,6 +1439,9 @@ async function loadCurrentUser() {
       // Also tint the browser tab title so you can tell staging apart in the tab bar
       document.title = `[${user.app_env.toUpperCase()}] ${document.title}`;
     }
+    // Version display
+    const verEl = document.getElementById('app-version');
+    if (verEl && user.app_version) verEl.textContent = `v${user.app_version}`;
   } catch { /* silent */ }
 }
 
@@ -1584,24 +1597,26 @@ function setWizardIntent(intent) {
 }
 
 function toggleWizardPlatform(card) {
-  // Single-select: deselect all then select the clicked one
-  const container = document.getElementById('wizard-platform-cards');
-  if (!container) return;
+  // Multi-select: toggle the clicked card
   const colors = { instagram: '#e1306c', linkedin: '#0a66c2', facebook: '#1877f2' };
-
-  container.querySelectorAll('.plat-card').forEach(c => {
-    const ind = c.querySelector('.plat-check-indicator');
-    c.dataset.selected = '0';
-    c.classList.remove('sel-ig', 'sel-li', 'sel-fb');
-    if (ind) { ind.textContent = '+ Select'; ind.style.color = '#94a3b8'; ind.style.fontWeight = '500'; }
-  });
-
   const platform = card.dataset.platform;
   const suffix = platform === 'instagram' ? 'ig' : platform === 'linkedin' ? 'li' : 'fb';
-  card.dataset.selected = '1';
-  card.classList.add(`sel-${suffix}`);
+  const isSelected = card.dataset.selected === '1';
   const ind = card.querySelector('.plat-check-indicator');
-  if (ind) { ind.textContent = '✓ Selected'; ind.style.color = colors[platform]; ind.style.fontWeight = '600'; }
+
+  if (isSelected) {
+    // Deselect — but keep at least one selected
+    const container = document.getElementById('wizard-platform-cards');
+    const selectedCount = container.querySelectorAll('.plat-card[data-selected="1"]').length;
+    if (selectedCount <= 1) return; // prevent zero selection
+    card.dataset.selected = '0';
+    card.classList.remove(`sel-${suffix}`);
+    if (ind) { ind.textContent = '+ Select'; ind.style.color = '#94a3b8'; ind.style.fontWeight = '500'; }
+  } else {
+    card.dataset.selected = '1';
+    card.classList.add(`sel-${suffix}`);
+    if (ind) { ind.textContent = '✓ Selected'; ind.style.color = colors[platform]; ind.style.fontWeight = '600'; }
+  }
 
   updateWizardGenBtn();
 }
@@ -1720,18 +1735,34 @@ function updateWizardGenBtn() {
   }
 }
 
+function onVariantModeChange() {
+  const mode = document.getElementById('wizard-variant-mode')?.value || 'auto';
+  const wrap = document.getElementById('wizard-pick-format-wrap');
+  if (!wrap) return;
+  wrap.style.display = (mode === 'pick') ? 'flex' : 'none';
+  wrap.style.flexDirection = 'column';
+}
+
 async function wizardGenerate() {
-  const intentCard = document.querySelector('#wizard-platform-cards .plat-card[data-selected="1"]');
-  const platform   = intentCard?.dataset.platform || 'instagram';
+  const selectedCards = document.querySelectorAll('#wizard-platform-cards .plat-card[data-selected="1"]');
+  const platforms = selectedCards.length
+    ? [...selectedCards].map(c => c.dataset.platform)
+    : ['instagram'];
   const provider   = document.getElementById('wizard-ai-provider')?.value || 'gemini';
   const customTopic = document.getElementById('wizard-custom-topic')?.value.trim() || '';
 
   const chosenTopic = wizardState.topicMode === 'choose' && wizardState.selectedTopicId;
+  const variantMode   = document.getElementById('wizard-variant-mode')?.value || 'auto';
+  const pickedFormat  = document.getElementById('wizard-post-format')?.value || 'classic_paragraph';
+  const emojiDensity  = document.getElementById('wizard-emoji-density')?.value || 'balanced';
   const body = {
     mode: chosenTopic ? 'manual' : 'quick',
-    platforms: [platform],
+    platforms,
     ai_provider: provider,
+    variant_mode: variantMode,
+    emoji_density: emojiDensity,
   };
+  if (variantMode === 'pick') body.post_format = pickedFormat;
   if (chosenTopic) {
     body.topic_id = wizardState.selectedTopicId;
   }
@@ -1756,10 +1787,19 @@ async function wizardGenerate() {
     data.errors?.forEach(e => showToast(`${e.platform}: ${e.error}`, 'error'));
 
     if (data.generated?.length) {
-      showToast(`Generated ${data.generated.length} post${data.generated.length > 1 ? 's' : ''}`, 'success');
-      showWizardResults(data.generated, wizardState.intent, data);
       loadStats();
       loadRecentContent();
+      // Multi-variant: show picker screen so user can choose between 3 formats
+      if (data.variant_mode === 'multi' && data.generated.length > 1) {
+        showToast(`Generated ${data.generated.length} variants — pick your favourite`, 'success');
+        showWizardResults(data.generated, wizardState.intent, data);
+      } else {
+        // Single post: skip results screen, go straight to post view
+        showToast('Post generated — opening…', 'success');
+        const firstId = data.generated[0].id;
+        showPage('library');
+        openModal(firstId);
+      }
     } else {
       // Nothing generated — show wizard again
       document.getElementById('wizard-card').style.display = '';
@@ -1783,7 +1823,11 @@ function showWizardResults(items, intent, meta) {
   if (chips) {
     if (meta?.topic) {
       chips.style.display = 'flex';
-      chips.innerHTML = `<span>🎯 <strong>Topic:</strong> ${meta.topic}</span><span style="color:rgba(165,180,252,0.4);">|</span><span><strong>Type:</strong> ${meta.content_type}</span><span style="color:rgba(165,180,252,0.4);">|</span><span><strong>Tone:</strong> ${meta.tone}</span>`;
+      const formatLabels = (items || []).map(i => i.post_format_label).filter(Boolean);
+      const formatChip = formatLabels.length
+        ? `<span style="color:rgba(165,180,252,0.4);">|</span><span><strong>Format:</strong> ${[...new Set(formatLabels)].join(' + ')}</span>`
+        : '';
+      chips.innerHTML = `<span>🎯 <strong>Topic:</strong> ${meta.topic}</span><span style="color:rgba(165,180,252,0.4);">|</span><span><strong>Type:</strong> ${meta.content_type}</span><span style="color:rgba(165,180,252,0.4);">|</span><span><strong>Tone:</strong> ${meta.tone}</span>${formatChip}`;
     } else {
       chips.style.display = 'none';
     }
@@ -1935,9 +1979,12 @@ async function wizardSelectImage(idx, contentId) {
       image_prompt: img.prompt || '',
       mime_type: img.mime_type || 'image/png',
     });
-    const savedEl = document.getElementById('gen-image-saved');
-    if (savedEl) savedEl.style.display = '';
-    showToast('Image saved to post', 'success');
+    showToast('Image saved — opening post…', 'success');
+    // Navigate directly to the post view modal
+    setTimeout(() => {
+      showPage('library');
+      openModal(contentId);
+    }, 600);
   } catch (err) {
     showToast(`Save failed: ${err.message}`, 'error');
   }
@@ -2150,6 +2197,11 @@ function resetWizard() {
   // Reset AI provider to Gemini
   const provSel = document.getElementById('wizard-ai-provider');
   if (provSel) provSel.value = 'gemini';
+
+  // Reset variant mode to auto and hide pick-format dropdown
+  const variantSel = document.getElementById('wizard-variant-mode');
+  if (variantSel) variantSel.value = 'auto';
+  onVariantModeChange();
 
   // Reset generate button
   updateWizardGenBtn();

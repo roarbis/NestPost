@@ -100,17 +100,24 @@ async def refine_image_prompt(
         f"Write the refined image generation prompt:"
     )
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
     payload = {
         "contents": [{"parts": [{"text": f"{system}\n\n{user_prompt}"}]}],
-        "generationConfig": {"temperature": 0.7, "maxOutputTokens": 300},
+        "generationConfig": {"temperature": 0.7, "maxOutputTokens": 500},
     }
 
+    models = ["gemini-2.5-flash", "gemini-2.0-flash"]
+    last_err: Exception | None = None
     async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(url, json=payload)
-        resp.raise_for_status()
-        text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
-        return text.strip().strip('"')
+        for model in models:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+            resp = await client.post(url, json=payload)
+            if resp.status_code == 503 and model != models[-1]:
+                last_err = Exception(f"{model} 503")
+                continue
+            resp.raise_for_status()
+            text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+            return text.strip().strip('"')
+    raise last_err
 
 
 async def generate_images_imagen4(

@@ -34,7 +34,7 @@ VIDEO_PROVIDERS = {
     },
     "kling_free": {
         "name": "Kling AI (Free)",
-        "description": "Kling AI — good motion coherence, 66 free credits/day",
+        "description": "Kling AI v1 — good motion coherence, uses free starter credits",
         "paid": False,
         "needs_key": "kling_api_key",
         "max_length": 10,
@@ -50,12 +50,12 @@ VIDEO_PROVIDERS = {
         "quality": 5,
     },
     "kling_pro": {
-        "name": "Kling AI Pro",
-        "description": "Kling AI Pro — 1080p, no watermark",
+        "name": "Kling AI Pro (v2)",
+        "description": "Kling AI v2-master — cinematic quality, 1080p, no watermark (paid credits)",
         "paid": True,
         "needs_key": "kling_api_key",
         "max_length": 10,
-        "quality": 4,
+        "quality": 5,
     },
     "runway": {
         "name": "Runway Gen-4",
@@ -96,6 +96,14 @@ VIDEO_PROVIDERS = {
         "needs_key": "fal_api_key",
         "max_length": 6,
         "quality": 4,
+    },
+    "atlascloud_video": {
+        "name": "Atlas Cloud Video",
+        "description": "300+ video models via Atlas Cloud — model configurable in Settings (default: Kling 3.0 Pro)",
+        "paid": True,
+        "needs_key": "atlascloud_api_key",
+        "max_length": 10,
+        "quality": 5,
     },
 }
 
@@ -353,8 +361,10 @@ async def generate_video_kling(
     # Kling only accepts "5" or "10" — round to nearest valid value
     kling_duration = "5" if duration <= 5 else "10"
 
+    # kling-v2-master = paid (best quality); kling-v1 = free/standard
+    model_name = "kling-v2-master" if mode == "pro" else "kling-v1"
     payload = {
-        "model_name": "kling-v1",   # required field
+        "model_name": model_name,
         "prompt": prompt,
         "aspect_ratio": aspect_ratio,
         "duration": kling_duration,
@@ -753,8 +763,117 @@ async def generate_video(
             raise ValueError("fal.ai API key required — add it in Settings")
         return await generate_video_fal(prompt, key, provider, aspect_ratio, duration)
 
+    elif provider == "atlascloud_video":
+        key = api_keys.get("atlascloud", "")
+        model = api_keys.get("atlascloud_video_model", "kwaivgi/kling-v3.0-pro/text-to-video")
+        if not key:
+            raise ValueError("Atlas Cloud API key required — add it in Settings")
+        return await generate_video_atlascloud(prompt, key, model, aspect_ratio, duration)
+
     else:
         raise ValueError(f"Unknown video provider: {provider}")
+
+
+async def generate_video_atlascloud(
+    prompt: str,
+    api_key: str,
+    model: str = "kwaivgi/kling-v3.0-pro/text-to-video",
+    aspect_ratio: str = "9:16",
+    duration: int = 5,
+) -> dict:
+    """Generate video via Atlas Cloud aggregator API (queue-based).
+    Docs: https://www.atlascloud.ai/docs/models/video
+    POST /api/v1/model/generateVideo → returns prediction_id → poll /api/v1/model/prediction/{id}"""
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "aspect_ratio": aspect_ratio,
+        "duration": str(duration),
+    }
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(
+            "https://api.atlascloud.ai/api/v1/model/generateVideo",
+            json=payload,
+            headers=headers,
+        )
+        if resp.status_code == 402:
+            return {"status": "error", "error": "Atlas Cloud: insufficient credits — top up at atlascloud.ai/console/billing"}
+        if resp.status_code == 401:
+            return {"status": "error", "error": "Atlas Cloud: invalid API key — check Settings"}
+        resp.raise_for_status()
+        data = resp.json()
+
+    prediction_id = data.get("data", {}).get("id") or data.get("id")
+    if not prediction_id:
+        return {"status": "error", "error": f"Atlas Cloud: no prediction ID returned — {data}"}
+
+    return await _poll_atlascloud(prediction_id, api_key)
+
+
+async def _poll_atlascloud(prediction_id: str, api_key: str, max_wait: int = 300) -> dict:
+    """Poll Atlas Cloud prediction endpoint every 5 seconds until complete."""
+    url = f"https://api.atlascloud.ai/api/v1/model/prediction/{prediction_id}"
+    headers = {"Authorization": f"Bearer {api_key}"}
+    elapsed = 0
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        while elapsed < max_wait:
+            await asyncio.sleep(5)
+            elapsed += 5
+            try:
+                resp = await client.get(url, headers=headers)
+                resp.raise_for_status()
+                data = resp.json()
+            except Exception as e:
+                continue
+
+            status = (data.get("data", {}).get("status") or data.get("status", "")).lower()
+
+            if status in ("succeeded", "completed", "success"):
+                # Try every known field shape Atlas Cloud might return the video URL in
+                inner = data.get("data") or {}
+                # Atlas Cloud returns data.outputs (array) or data.output
+                output = inner.get("outputs") or inner.get("output") or data.get("outputs") or data.get("output")
+
+                video_url = None
+                if isinstance(output, list) and output:
+                    video_url = output[0] if isinstance(output[0], str) else None
+                elif isinstance(output, str) and output.startswith("http"):
+                    video_url = output
+                elif isinstance(output, dict):
+                    video_url = (output.get("video_url") or output.get("url") or
+                                 output.get("video") or output.get("mp4"))
+                if not video_url:
+                    video_url = (inner.get("video_url") or inner.get("url") or
+                                 inner.get("video") or data.get("video_url") or
+                                 data.get("url") or data.get("video"))
+
+                if video_url:
+                    # Download and return as base64
+                    async with httpx.AsyncClient(timeout=60.0) as dl:
+                        vresp = await dl.get(video_url)
+                        vresp.raise_for_status()
+                    import base64
+                    return {
+                        "status": "complete",
+                        "video_base64": base64.b64encode(vresp.content).decode(),
+                        "mime_type": "video/mp4",
+                    }
+                # Include truncated raw response to help diagnose field name
+                import json as _json
+                raw_snippet = _json.dumps(data)[:400]
+                return {"status": "error", "error": f"Atlas Cloud: no video URL found in response — {raw_snippet}"}
+
+            if status in ("failed", "error", "cancelled"):
+                msg = data.get("data", {}).get("error") or data.get("error") or "Unknown error"
+                return {"status": "error", "error": f"Atlas Cloud generation failed: {msg}"}
+
+    return {"status": "error", "error": f"Atlas Cloud: timed out after {max_wait}s"}
 
 
 # ── Cloudflare R2 Storage ─────────────────────────────────────────────────────

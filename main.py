@@ -258,7 +258,11 @@ async def current_user(request: Request):
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     # APP_ENV is set per-Render-service: 'staging' on nestpost-staging, unset (→production) on prod
-    return {**user, "app_env": os.environ.get("APP_ENV", "production").lower()}
+    try:
+        version = open(os.path.join(os.path.dirname(__file__), "VERSION")).read().strip()
+    except Exception:
+        version = "unknown"
+    return {**user, "app_env": os.environ.get("APP_ENV", "production").lower(), "app_version": version}
 
 
 class ChangePasswordRequest(BaseModel):
@@ -389,6 +393,7 @@ async def provider_status():
     groq_key = get_setting("groq_api_key", "")
     deepseek_key = get_setting("deepseek_api_key", "")
     qwen_key = get_setting("qwen_api_key", "")
+    atlascloud_key = get_setting("atlascloud_api_key", "")
     gemini_paid_key = get_setting("gemini_paid_api_key", "")
     stability_key = get_setting("stability_api_key", "")
     openai_key = get_setting("openai_api_key", "")
@@ -442,6 +447,14 @@ async def provider_status():
             {"Authorization": f"Bearer {qwen_key}"},
         )
 
+    async def check_atlascloud():
+        if not atlascloud_key or atlascloud_key == "••••••••":
+            return None
+        return await check_api_key_provider(
+            "https://api.atlascloud.ai/v1/models",
+            {"Authorization": f"Bearer {atlascloud_key}"},
+        )
+
     async def check_gemini_paid():
         if not gemini_paid_key or gemini_paid_key == "••••••••":
             return None
@@ -472,7 +485,7 @@ async def provider_status():
 
     results = await asyncio.gather(
         check_ollama(), check_groq(), check_gemini(),
-        check_deepseek(), check_qwen(),
+        check_deepseek(), check_qwen(), check_atlascloud(),
         check_gemini_paid(), check_stability(), check_openai(),
         return_exceptions=True,
     )
@@ -489,18 +502,20 @@ async def provider_status():
             "gemini": {"online": status_val(results[2])},
             "deepseek": {"online": status_val(results[3])},
             "qwen": {"online": status_val(results[4])},
+            "atlascloud": {"online": status_val(results[5])},
         },
         "image": {
             "imagen4": {"online": status_val(results[2]), "label": "Imagen 4"},
             "gemini_native": {"online": status_val(results[2]), "label": "Nano Banana"},
-            "gemini_native_paid": {"online": status_val(results[5]), "label": "Nano Banana 2"},
-            "stability": {"online": status_val(results[6]), "label": "Stability AI"},
-            "dalle": {"online": status_val(results[7]), "label": "DALL-E 3"},
+            "gemini_native_paid": {"online": status_val(results[6]), "label": "Nano Banana 2"},
+            "stability": {"online": status_val(results[7]), "label": "Stability AI"},
+            "dalle": {"online": status_val(results[8]), "label": "DALL-E 3"},
         },
         "video": {
             "veo3":   {"online": False,                                                                                    "paid": True,  "label": "Veo 3.1 (Google)"},
             "kling":  {"online": bool(get_setting("kling_api_key","")) and bool(get_setting("kling_secret_key","")),                    "label": "Kling AI"},
             "fal":    {"online": bool(get_setting("fal_api_key","")),                                                                   "label": "fal.ai (WAN 2.1)"},
+            "atlascloud_video": {"online": bool(get_setting("atlascloud_api_key","")),          "paid": True,                          "label": "Atlas Cloud Video"},
             "runway": {"online": bool(get_setting("runway_api_key","")),                                                   "paid": True,  "label": "Runway Gen-4"},
             "luma":   {"online": bool(get_setting("luma_api_key","")),                                                     "paid": True,  "label": "Luma Dream Machine"},
         },
@@ -542,6 +557,41 @@ class GenerateRequest(BaseModel):
     tone: Optional[str] = None
     ai_provider: Optional[str] = None
     ollama_model: Optional[str] = None
+    # Post variety controls
+    variant_mode: str = "auto"              # "auto" | "pick" | "multi"
+    post_format: Optional[str] = None       # used when variant_mode == "pick"
+    emoji_density: str = "balanced"         # "heavy" | "balanced" | "light" | "none"
+
+
+def _next_auto_format() -> str:
+    """Shuffled-queue round-robin across all POST_FORMATS, with 0-1 swap guard
+    to prevent back-to-back repeats across cycle boundaries."""
+    from knowledge_base import POST_FORMATS
+    all_formats = list(POST_FORMATS.keys())
+    queue_raw = get_setting("auto_format_queue", "")
+    last_used = get_setting("auto_format_last", "")
+    queue = [f for f in queue_raw.split(",") if f in POST_FORMATS] if queue_raw else []
+    if not queue:
+        queue = all_formats.copy()
+        random.shuffle(queue)
+        # Guard: if the first of the fresh queue matches the last-used format, swap with index 1
+        if last_used and queue and queue[0] == last_used and len(queue) > 1:
+            queue[0], queue[1] = queue[1], queue[0]
+    chosen = queue.pop(0)
+    set_setting("auto_format_queue", ",".join(queue))
+    set_setting("auto_format_last", chosen)
+    return chosen
+
+
+def _pick_contrast_formats() -> list[str]:
+    """Pick 3 deliberately contrasting formats from 3/3/2 buckets
+    (long_form, list_structured, short_punchy)."""
+    from knowledge_base import FORMAT_BUCKETS
+    return [
+        random.choice(FORMAT_BUCKETS["long_form"]),
+        random.choice(FORMAT_BUCKETS["list_structured"]),
+        random.choice(FORMAT_BUCKETS["short_punchy"]),
+    ]
 
 
 @app.post("/api/generate")
@@ -592,6 +642,8 @@ async def generate(req: GenerateRequest):
         "gemini": get_setting("gemini_api_key", ""),
         "deepseek": get_setting("deepseek_api_key", ""),
         "qwen": get_setting("qwen_api_key", ""),
+        "atlascloud": get_setting("atlascloud_api_key", ""),
+        "atlascloud_model": get_setting("atlascloud_model", "deepseek-v3"),
     }
 
     # Resolve topic
@@ -608,50 +660,71 @@ async def generate(req: GenerateRequest):
     content_type = req.content_type or random.choice(CONTENT_TYPES)
     tone = req.tone or random.choice(TONES)
 
+    # ── Resolve format(s) based on variant_mode ─────────────────────────────
+    from knowledge_base import POST_FORMATS
+    emoji_density = req.emoji_density if req.emoji_density in ("heavy", "balanced", "light", "none") else "balanced"
+
+    if req.variant_mode == "multi":
+        formats_to_generate = _pick_contrast_formats()
+        platforms_to_use = [req.platforms[0] if req.platforms else "instagram"]
+    elif req.variant_mode == "pick" and req.post_format and req.post_format in POST_FORMATS:
+        formats_to_generate = [req.post_format]
+        platforms_to_use = req.platforms
+    else:
+        # auto
+        formats_to_generate = [_next_auto_format()]
+        platforms_to_use = req.platforms
+
     results = []
     errors = []
 
-    for platform in req.platforms:
-        try:
-            post = await generate_post(
-                platform=platform,
-                content_type=content_type,
-                topic=topic_name,
-                angle=angle,
-                tone=tone,
-                ai_provider=ai_provider,
-                ollama_url=ollama_url,
-                ollama_model=ollama_model,
-                api_keys=api_keys,
-            )
+    for platform in platforms_to_use:
+        for post_format in formats_to_generate:
+            try:
+                post = await generate_post(
+                    platform=platform,
+                    content_type=content_type,
+                    topic=topic_name,
+                    angle=angle,
+                    tone=tone,
+                    ai_provider=ai_provider,
+                    ollama_url=ollama_url,
+                    ollama_model=ollama_model,
+                    api_keys=api_keys,
+                    post_format=post_format,
+                    emoji_density=emoji_density,
+                )
 
-            # Save to DB
-            conn = get_conn()
-            cursor = conn.execute(
-                """INSERT INTO content
-                   (platform, content_type, topic, caption, hashtags,
-                    image_suggestion, hook, cta, status)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft')""",
-                (
-                    platform,
-                    content_type,
-                    topic_name,
-                    post.get("caption", ""),
-                    post.get("hashtags", ""),
-                    post.get("image_suggestion", ""),
-                    post.get("hook", ""),
-                    post.get("cta", ""),
-                ),
-            )
-            conn.commit()
-            new_id = cursor.lastrowid
+                # Save to DB
+                conn = get_conn()
+                cursor = conn.execute(
+                    """INSERT INTO content
+                       (platform, content_type, topic, caption, hashtags,
+                        image_suggestion, hook, cta, status)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft')""",
+                    (
+                        platform,
+                        content_type,
+                        topic_name,
+                        post.get("caption", ""),
+                        post.get("hashtags", ""),
+                        post.get("image_suggestion", ""),
+                        post.get("hook", ""),
+                        post.get("cta", ""),
+                    ),
+                )
+                conn.commit()
+                new_id = cursor.lastrowid
 
-            row = conn.execute(f"SELECT {CONTENT_COLS} FROM content WHERE id = ?", (new_id,)).fetchone()
-            conn.close()
+                row = conn.execute(f"SELECT {CONTENT_COLS} FROM content WHERE id = ?", (new_id,)).fetchone()
+                conn.close()
 
-            results.append(dict(row))
-        except Exception as e:
-            errors.append({"platform": platform, "error": str(e)})
+                item = dict(row)
+                item["post_format"] = post_format
+                item["post_format_label"] = POST_FORMATS[post_format]["label"]
+                results.append(item)
+            except Exception as e:
+                errors.append({"platform": platform, "format": post_format, "error": str(e)})
 
     return {
         "generated": results,
@@ -660,6 +733,8 @@ async def generate(req: GenerateRequest):
         "angle": angle,
         "content_type": content_type,
         "tone": tone,
+        "variant_mode": req.variant_mode,
+        "formats_used": formats_to_generate,
     }
 
 
@@ -1111,6 +1186,8 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
         "runway": get_setting("runway_api_key", ""),
         "luma": get_setting("luma_api_key", ""),
         "fal": get_setting("fal_api_key", ""),
+        "atlascloud": get_setting("atlascloud_api_key", ""),
+        "atlascloud_video_model": get_setting("atlascloud_video_model", "kwaivgi/kling-v3.0-pro/text-to-video"),
     }
 
     try:
@@ -1345,6 +1422,7 @@ ENCRYPTED_KEYS = {
     "gemini_api_key",
     "deepseek_api_key",
     "qwen_api_key",
+    "atlascloud_api_key",
     "gemini_paid_api_key",
     "stability_api_key",
     "openai_api_key",
@@ -1371,6 +1449,9 @@ SETTINGS_KEYS = [
     "gemini_api_key",
     "deepseek_api_key",
     "qwen_api_key",
+    "atlascloud_api_key",
+    "atlascloud_model",
+    "atlascloud_video_model",
     "gemini_paid_api_key",
     "stability_api_key",
     "openai_api_key",

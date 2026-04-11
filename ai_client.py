@@ -1,22 +1,42 @@
 import httpx
 import json
 import re
-from knowledge_base import CONNECTNEST_PROFILE, PLATFORM_GUIDELINES
+from knowledge_base import (
+    CONNECTNEST_PROFILE,
+    PLATFORM_GUIDELINES,
+    POST_FORMATS,
+    EMOJI_DIRECTIVES,
+)
 
 
-def build_prompt(platform: str, content_type: str, topic: str, angle: str, tone: str) -> tuple[str, str]:
+def build_prompt(
+    platform: str,
+    content_type: str,
+    topic: str,
+    angle: str,
+    tone: str,
+    post_format: str = "classic_paragraph",
+    emoji_density: str = "balanced",
+) -> tuple[str, str]:
     pg = PLATFORM_GUIDELINES.get(platform, PLATFORM_GUIDELINES["instagram"])
+    fmt = POST_FORMATS.get(post_format, POST_FORMATS["classic_paragraph"])
+    emoji_rule = EMOJI_DIRECTIVES.get(emoji_density, EMOJI_DIRECTIVES["balanced"])
 
-    system_prompt = f"""You are an expert social media content writer for ConnectNest, a smart home automation company in Melbourne, Australia.
+    system_prompt = f"""You are an expert social media content writer for ConnectNest, a smart home automation company serving homeowners across Australia.
 
 {CONNECTNEST_PROFILE}
 
-Your job is to write compelling, authentic social media content that connects with Melbourne homeowners.
+Your job is to write compelling, authentic social media content that connects with Australian homeowners.
 Always write in first person as ConnectNest. Never mention competitor brand names.
 Never copy generic content — make it specific, local, and genuinely useful.
+
+CRITICAL — follow the format spec below exactly. Do NOT default to your usual structure:
+{fmt['spec']}
+
+{emoji_rule}
 """
 
-    user_prompt = f"""Write a {platform.upper()} post for ConnectNest.
+    user_prompt = f"""Write a {platform.upper()} post for ConnectNest in the "{fmt['label']}" format.
 
 TOPIC: {topic}
 ANGLE: {angle}
@@ -27,8 +47,7 @@ PLATFORM REQUIREMENTS:
 - Tone: {pg['tone']}
 - Length: {pg['length']}
 - Hashtags: {pg['hashtags']}
-- Format: {pg['format']}
-- Emoji use: {pg['emoji_use']}
+- Format guideline (may be overridden by the format spec above): {pg['format']}
 
 Return ONLY a valid JSON object with exactly this structure (no markdown, no explanation, just JSON):
 {{
@@ -155,6 +174,28 @@ async def call_deepseek(prompt_system: str, prompt_user: str, api_key: str) -> s
         return resp.json()["choices"][0]["message"]["content"]
 
 
+async def call_atlascloud(prompt_system: str, prompt_user: str, api_key: str, model: str = "deepseek-v3") -> str:
+    """Atlas Cloud — OpenAI-compatible aggregator (300+ models).
+    Base URL: https://api.atlascloud.ai/v1  |  Auth: Bearer token
+    Default model: deepseek-v3 (change via atlascloud_model setting)."""
+    if not api_key or not api_key.strip():
+        raise ValueError("Atlas Cloud API key not configured — add it in Settings")
+    url = "https://api.atlascloud.ai/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": prompt_system},
+            {"role": "user", "content": prompt_user},
+        ],
+        "temperature": 0.8,
+    }
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        resp = await client.post(url, json=payload, headers=headers)
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"]
+
+
 async def call_qwen(prompt_system: str, prompt_user: str, api_key: str) -> str:
     if not api_key or not api_key.strip():
         raise ValueError("Qwen API key not configured — add it in Settings")
@@ -184,8 +225,13 @@ async def generate_post(
     ollama_url: str,
     ollama_model: str,
     api_keys: dict,
+    post_format: str = "classic_paragraph",
+    emoji_density: str = "balanced",
 ) -> dict:
-    system_p, user_p = build_prompt(platform, content_type, topic, angle, tone)
+    system_p, user_p = build_prompt(
+        platform, content_type, topic, angle, tone,
+        post_format=post_format, emoji_density=emoji_density,
+    )
 
     try:
         if ai_provider == "ollama":
@@ -198,6 +244,8 @@ async def generate_post(
             raw = await call_deepseek(system_p, user_p, api_keys.get("deepseek", ""))
         elif ai_provider == "qwen":
             raw = await call_qwen(system_p, user_p, api_keys.get("qwen", ""))
+        elif ai_provider == "atlascloud":
+            raw = await call_atlascloud(system_p, user_p, api_keys.get("atlascloud", ""), api_keys.get("atlascloud_model", "deepseek-v3"))
         else:
             raise ValueError(f"Unknown AI provider: {ai_provider}")
 
