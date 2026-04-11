@@ -93,17 +93,18 @@ function _buildWizardVideoProviderCards(videoData) {
   container.innerHTML = '';
 
   // Maps sidebar status key → actual provider ID used by video_client.py
-  const providerIdMap = { veo3: 'veo3_free', kling: 'kling_free', runway: 'runway', luma: 'luma', fal: 'fal_wan' };
+  const providerIdMap = { veo3: 'veo3_free', kling: 'kling_free', runway: 'runway', luma: 'luma', fal: 'fal_wan', atlascloud_video: 'atlascloud_video' };
   const providerMeta = {
-    veo3:   { label: 'Veo 3.1',        icon: '🎬', note: 'Google — Paid only' },
-    kling:  { label: 'Kling AI',       icon: '🎞️', note: '66 free credits/day' },
-    fal:    { label: 'WAN 2.1 (fal)',  icon: '⚡', note: 'Free credits included' },
-    runway: { label: 'Runway Gen-4',   icon: '🚀', note: 'Paid' },
-    luma:   { label: 'Luma Dream',     icon: '✨', note: 'Paid' },
+    veo3:             { label: 'Veo 3.1',           icon: '🎬', note: 'Google — Paid only' },
+    kling:            { label: 'Kling AI',          icon: '🎞️', note: 'Standard credits' },
+    fal:              { label: 'WAN 2.1 (fal)',     icon: '⚡', note: 'Free credits included' },
+    runway:           { label: 'Runway Gen-4',      icon: '🚀', note: 'Paid' },
+    luma:             { label: 'Luma Dream',        icon: '✨', note: 'Paid' },
+    atlascloud_video: { label: 'Atlas Cloud Video', icon: '☁️', note: 'Kling 3.0 Pro & more' },
   };
 
-  // Preferred auto-select order: Kling first, then fal.ai (both free), paid last
-  const preferredOrder = ['kling', 'fal', 'runway', 'luma', 'veo3'];
+  // Preferred auto-select order: Atlas Cloud > Kling > fal > paid providers
+  const preferredOrder = ['atlascloud_video', 'kling', 'fal', 'runway', 'luma', 'veo3'];
   const enabledKeys = new Set();
   const cards = {};
 
@@ -1782,10 +1783,19 @@ async function wizardGenerate() {
     data.errors?.forEach(e => showToast(`${e.platform}: ${e.error}`, 'error'));
 
     if (data.generated?.length) {
-      showToast(`Generated ${data.generated.length} post${data.generated.length > 1 ? 's' : ''}`, 'success');
-      showWizardResults(data.generated, wizardState.intent, data);
       loadStats();
       loadRecentContent();
+      // Multi-variant: show picker screen so user can choose between 3 formats
+      if (data.variant_mode === 'multi' && data.generated.length > 1) {
+        showToast(`Generated ${data.generated.length} variants — pick your favourite`, 'success');
+        showWizardResults(data.generated, wizardState.intent, data);
+      } else {
+        // Single post: skip results screen, go straight to post view
+        showToast('Post generated — opening…', 'success');
+        const firstId = data.generated[0].id;
+        showPage('library');
+        openModal(firstId);
+      }
     } else {
       // Nothing generated — show wizard again
       document.getElementById('wizard-card').style.display = '';
