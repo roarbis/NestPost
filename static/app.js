@@ -1720,6 +1720,12 @@ function updateWizardGenBtn() {
   }
 }
 
+function onVariantModeChange() {
+  const mode = document.getElementById('wizard-variant-mode')?.value || 'auto';
+  const wrap = document.getElementById('wizard-pick-format-wrap');
+  if (wrap) wrap.style.display = (mode === 'pick') ? 'flex' : 'none';
+}
+
 async function wizardGenerate() {
   const intentCard = document.querySelector('#wizard-platform-cards .plat-card[data-selected="1"]');
   const platform   = intentCard?.dataset.platform || 'instagram';
@@ -1727,11 +1733,17 @@ async function wizardGenerate() {
   const customTopic = document.getElementById('wizard-custom-topic')?.value.trim() || '';
 
   const chosenTopic = wizardState.topicMode === 'choose' && wizardState.selectedTopicId;
+  const variantMode   = document.getElementById('wizard-variant-mode')?.value || 'auto';
+  const pickedFormat  = document.getElementById('wizard-post-format')?.value || 'classic_paragraph';
+  const emojiDensity  = document.getElementById('wizard-emoji-density')?.value || 'balanced';
   const body = {
     mode: chosenTopic ? 'manual' : 'quick',
     platforms: [platform],
     ai_provider: provider,
+    variant_mode: variantMode,
+    emoji_density: emojiDensity,
   };
+  if (variantMode === 'pick') body.post_format = pickedFormat;
   if (chosenTopic) {
     body.topic_id = wizardState.selectedTopicId;
   }
@@ -1783,7 +1795,11 @@ function showWizardResults(items, intent, meta) {
   if (chips) {
     if (meta?.topic) {
       chips.style.display = 'flex';
-      chips.innerHTML = `<span>🎯 <strong>Topic:</strong> ${meta.topic}</span><span style="color:rgba(165,180,252,0.4);">|</span><span><strong>Type:</strong> ${meta.content_type}</span><span style="color:rgba(165,180,252,0.4);">|</span><span><strong>Tone:</strong> ${meta.tone}</span>`;
+      const formatLabels = (items || []).map(i => i.post_format_label).filter(Boolean);
+      const formatChip = formatLabels.length
+        ? `<span style="color:rgba(165,180,252,0.4);">|</span><span><strong>Format:</strong> ${[...new Set(formatLabels)].join(' + ')}</span>`
+        : '';
+      chips.innerHTML = `<span>🎯 <strong>Topic:</strong> ${meta.topic}</span><span style="color:rgba(165,180,252,0.4);">|</span><span><strong>Type:</strong> ${meta.content_type}</span><span style="color:rgba(165,180,252,0.4);">|</span><span><strong>Tone:</strong> ${meta.tone}</span>${formatChip}`;
     } else {
       chips.style.display = 'none';
     }

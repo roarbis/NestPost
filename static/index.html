@@ -415,34 +415,36 @@
         Log Out
       </div>
     </div>
+
+    <!-- Provider status panels — inline so all visible without scrolling -->
+    <div style="padding:10px 2px 8px;">
+      <div style="background:rgba(255,255,255,0.04);border-radius:12px;padding:9px 12px;">
+        <div style="color:#475569;font-size:0.6rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px;">Text Providers</div>
+        <div id="text-provider-status" style="display:flex;flex-direction:column;gap:3px;">
+          <div style="display:flex;align-items:center;gap:7px;font-size:0.72rem;color:#64748b;font-weight:500;padding:2px 0;">
+            <span style="width:6px;height:6px;border-radius:50%;background:#475569;display:inline-block;flex-shrink:0;"></span> Loading...
+          </div>
+        </div>
+      </div>
+      <div style="background:rgba(255,255,255,0.04);border-radius:12px;padding:9px 12px;margin-top:5px;">
+        <div style="color:#475569;font-size:0.6rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px;">Image Providers</div>
+        <div id="image-provider-status" style="display:flex;flex-direction:column;gap:3px;">
+          <div style="display:flex;align-items:center;gap:7px;font-size:0.72rem;color:#64748b;font-weight:500;padding:2px 0;">
+            <span style="width:6px;height:6px;border-radius:50%;background:#475569;display:inline-block;flex-shrink:0;"></span> Loading...
+          </div>
+        </div>
+      </div>
+      <div style="background:rgba(255,255,255,0.04);border-radius:12px;padding:9px 12px;margin-top:5px;">
+        <div style="color:#475569;font-size:0.6rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px;">Video Providers</div>
+        <div id="video-provider-status" style="display:flex;flex-direction:column;gap:3px;">
+          <div style="display:flex;align-items:center;gap:7px;font-size:0.72rem;color:#64748b;font-weight:500;padding:2px 0;">
+            <span style="width:6px;height:6px;border-radius:50%;background:#475569;display:inline-block;flex-shrink:0;"></span> Loading...
+          </div>
+        </div>
+      </div>
+    </div>
   </nav>
 
-  <div style="padding:10px 16px 18px; border-top:1px solid rgba(255,255,255,0.07);overflow-y:auto;max-height:340px;">
-    <div style="background:rgba(255,255,255,0.04);border-radius:12px;padding:10px 12px;">
-      <div style="color:#475569;font-size:0.6rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px;">Text Providers</div>
-      <div id="text-provider-status" style="display:flex;flex-direction:column;gap:3px;">
-        <div style="display:flex;align-items:center;gap:7px;font-size:0.72rem;color:#64748b;font-weight:500;padding:2px 0;">
-          <span style="width:6px;height:6px;border-radius:50%;background:#475569;display:inline-block;flex-shrink:0;"></span> Loading...
-        </div>
-      </div>
-    </div>
-    <div style="background:rgba(255,255,255,0.04);border-radius:12px;padding:10px 12px;margin-top:6px;">
-      <div style="color:#475569;font-size:0.6rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px;">Image Providers</div>
-      <div id="image-provider-status" style="display:flex;flex-direction:column;gap:3px;">
-        <div style="display:flex;align-items:center;gap:7px;font-size:0.72rem;color:#64748b;font-weight:500;padding:2px 0;">
-          <span style="width:6px;height:6px;border-radius:50%;background:#475569;display:inline-block;flex-shrink:0;"></span> Loading...
-        </div>
-      </div>
-    </div>
-    <div style="background:rgba(255,255,255,0.04);border-radius:12px;padding:10px 12px;margin-top:6px;">
-      <div style="color:#475569;font-size:0.6rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px;">Video Providers</div>
-      <div id="video-provider-status" style="display:flex;flex-direction:column;gap:3px;">
-        <div style="display:flex;align-items:center;gap:7px;font-size:0.72rem;color:#64748b;font-weight:500;padding:2px 0;">
-          <span style="width:6px;height:6px;border-radius:50%;background:#475569;display:inline-block;flex-shrink:0;"></span> Loading...
-        </div>
-      </div>
-    </div>
-  </div>
 </aside>
 
 <main style="flex:1;overflow-y:auto;display:flex;flex-direction:column;">
@@ -639,6 +641,43 @@
         <div class="lbl" style="margin-bottom:12px;">Video Provider</div>
         <div id="wizard-video-provider-cards" style="display:flex;flex-wrap:wrap;gap:10px;">
           <!-- populated by JS from provider status -->
+        </div>
+      </div>
+
+      <!-- Step 5b: Post Format + Emoji Density -->
+      <div style="margin-bottom:28px;">
+        <div class="lbl" style="margin-bottom:10px;">Post Style</div>
+        <div style="display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;">
+          <div style="display:flex;flex-direction:column;gap:4px;min-width:240px;">
+            <label style="font-size:0.7rem;color:#64748b;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;">Format</label>
+            <select id="wizard-variant-mode" class="inp" onchange="onVariantModeChange()">
+              <option value="auto" selected>✨ Auto generate format</option>
+              <option value="pick">🎯 Pick format</option>
+              <option value="multi">🎨 Choice of multiple formats (3× tokens)</option>
+            </select>
+          </div>
+          <div id="wizard-pick-format-wrap" style="display:none;flex-direction:column;gap:4px;min-width:240px;">
+            <label style="font-size:0.7rem;color:#64748b;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;">Specific format</label>
+            <select id="wizard-post-format" class="inp">
+              <option value="classic_paragraph">📝 Classic Paragraph</option>
+              <option value="bullet_list">• Bullet List</option>
+              <option value="bold_headline">💥 Bold Headline</option>
+              <option value="before_after">🔄 Before / After</option>
+              <option value="question_hook">❓ Question Hook</option>
+              <option value="stat_lead">📊 Stat Lead</option>
+              <option value="mini_story">📖 Mini Story</option>
+              <option value="tip_of_day">💡 Tip of the Day</option>
+            </select>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:4px;min-width:200px;">
+            <label style="font-size:0.7rem;color:#64748b;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;">Emoji density</label>
+            <select id="wizard-emoji-density" class="inp">
+              <option value="heavy">🔥 Heavy</option>
+              <option value="balanced" selected>⚖️ Balanced</option>
+              <option value="light">🌱 Light</option>
+              <option value="none">⬜ None</option>
+            </select>
+          </div>
         </div>
       </div>
 

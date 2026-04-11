@@ -542,6 +542,41 @@ class GenerateRequest(BaseModel):
     tone: Optional[str] = None
     ai_provider: Optional[str] = None
     ollama_model: Optional[str] = None
+    # Post variety controls
+    variant_mode: str = "auto"              # "auto" | "pick" | "multi"
+    post_format: Optional[str] = None       # used when variant_mode == "pick"
+    emoji_density: str = "balanced"         # "heavy" | "balanced" | "light" | "none"
+
+
+def _next_auto_format() -> str:
+    """Shuffled-queue round-robin across all POST_FORMATS, with 0-1 swap guard
+    to prevent back-to-back repeats across cycle boundaries."""
+    from knowledge_base import POST_FORMATS
+    all_formats = list(POST_FORMATS.keys())
+    queue_raw = get_setting("auto_format_queue", "")
+    last_used = get_setting("auto_format_last", "")
+    queue = [f for f in queue_raw.split(",") if f in POST_FORMATS] if queue_raw else []
+    if not queue:
+        queue = all_formats.copy()
+        random.shuffle(queue)
+        # Guard: if the first of the fresh queue matches the last-used format, swap with index 1
+        if last_used and queue and queue[0] == last_used and len(queue) > 1:
+            queue[0], queue[1] = queue[1], queue[0]
+    chosen = queue.pop(0)
+    set_setting("auto_format_queue", ",".join(queue))
+    set_setting("auto_format_last", chosen)
+    return chosen
+
+
+def _pick_contrast_formats() -> list[str]:
+    """Pick 3 deliberately contrasting formats from 3/3/2 buckets
+    (long_form, list_structured, short_punchy)."""
+    from knowledge_base import FORMAT_BUCKETS
+    return [
+        random.choice(FORMAT_BUCKETS["long_form"]),
+        random.choice(FORMAT_BUCKETS["list_structured"]),
+        random.choice(FORMAT_BUCKETS["short_punchy"]),
+    ]
 
 
 @app.post("/api/generate")
@@ -608,50 +643,71 @@ async def generate(req: GenerateRequest):
     content_type = req.content_type or random.choice(CONTENT_TYPES)
     tone = req.tone or random.choice(TONES)
 
+    # ── Resolve format(s) based on variant_mode ─────────────────────────────
+    from knowledge_base import POST_FORMATS
+    emoji_density = req.emoji_density if req.emoji_density in ("heavy", "balanced", "light", "none") else "balanced"
+
+    if req.variant_mode == "multi":
+        formats_to_generate = _pick_contrast_formats()
+        platforms_to_use = [req.platforms[0] if req.platforms else "instagram"]
+    elif req.variant_mode == "pick" and req.post_format and req.post_format in POST_FORMATS:
+        formats_to_generate = [req.post_format]
+        platforms_to_use = req.platforms
+    else:
+        # auto
+        formats_to_generate = [_next_auto_format()]
+        platforms_to_use = req.platforms
+
     results = []
     errors = []
 
-    for platform in req.platforms:
-        try:
-            post = await generate_post(
-                platform=platform,
-                content_type=content_type,
-                topic=topic_name,
-                angle=angle,
-                tone=tone,
-                ai_provider=ai_provider,
-                ollama_url=ollama_url,
-                ollama_model=ollama_model,
-                api_keys=api_keys,
-            )
+    for platform in platforms_to_use:
+        for post_format in formats_to_generate:
+            try:
+                post = await generate_post(
+                    platform=platform,
+                    content_type=content_type,
+                    topic=topic_name,
+                    angle=angle,
+                    tone=tone,
+                    ai_provider=ai_provider,
+                    ollama_url=ollama_url,
+                    ollama_model=ollama_model,
+                    api_keys=api_keys,
+                    post_format=post_format,
+                    emoji_density=emoji_density,
+                )
 
-            # Save to DB
-            conn = get_conn()
-            cursor = conn.execute(
-                """INSERT INTO content
-                   (platform, content_type, topic, caption, hashtags,
-                    image_suggestion, hook, cta, status)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft')""",
-                (
-                    platform,
-                    content_type,
-                    topic_name,
-                    post.get("caption", ""),
-                    post.get("hashtags", ""),
-                    post.get("image_suggestion", ""),
-                    post.get("hook", ""),
-                    post.get("cta", ""),
-                ),
-            )
-            conn.commit()
-            new_id = cursor.lastrowid
+                # Save to DB
+                conn = get_conn()
+                cursor = conn.execute(
+                    """INSERT INTO content
+                       (platform, content_type, topic, caption, hashtags,
+                        image_suggestion, hook, cta, status)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft')""",
+                    (
+                        platform,
+                        content_type,
+                        topic_name,
+                        post.get("caption", ""),
+                        post.get("hashtags", ""),
+                        post.get("image_suggestion", ""),
+                        post.get("hook", ""),
+                        post.get("cta", ""),
+                    ),
+                )
+                conn.commit()
+                new_id = cursor.lastrowid
 
-            row = conn.execute(f"SELECT {CONTENT_COLS} FROM content WHERE id = ?", (new_id,)).fetchone()
-            conn.close()
+                row = conn.execute(f"SELECT {CONTENT_COLS} FROM content WHERE id = ?", (new_id,)).fetchone()
+                conn.close()
 
-            results.append(dict(row))
-        except Exception as e:
-            errors.append({"platform": platform, "error": str(e)})
+                item = dict(row)
+                item["post_format"] = post_format
+                item["post_format_label"] = POST_FORMATS[post_format]["label"]
+                results.append(item)
+            except Exception as e:
+                errors.append({"platform": platform, "format": post_format, "error": str(e)})
 
     return {
         "generated": results,
@@ -660,6 +716,8 @@ async def generate(req: GenerateRequest):
         "angle": angle,
         "content_type": content_type,
         "tone": tone,
+        "variant_mode": req.variant_mode,
+        "formats_used": formats_to_generate,
     }
 
 

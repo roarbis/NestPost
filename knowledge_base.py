@@ -1,7 +1,7 @@
 CONNECTNEST_PROFILE = """
 COMPANY: ConnectNest
 INDUSTRY: Smart Home Automation
-LOCATION: Melbourne, Australia
+LOCATION: Australia (serving all major cities including Melbourne, Sydney, Brisbane, Perth)
 WEBSITE: connectnest.com.au
 EMAIL: hello@connectnest.com.au
 PHONE: (+61) 0492 970 809
@@ -293,6 +293,94 @@ TONES = [
     "Trustworthy & Reassuring",
     "Fun & Engaging",
 ]
+
+
+POST_FORMATS = {
+    "classic_paragraph": {
+        "label": "Classic Paragraph",
+        "spec": """FORMAT: Classic Paragraph
+- Write 2-3 flowing paragraphs of conversational prose.
+- Open with a relatable hook sentence (NOT a rhetorical question, NOT a greeting with emoji).
+- Middle paragraph explains the benefit or story with concrete detail.
+- Close with a soft CTA woven into the prose.
+FORBIDDEN: bullet points, numbered lists, headline-style all-caps openers, "Did you know..." rhetorical questions.""",
+    },
+    "bullet_list": {
+        "label": "Bullet List",
+        "spec": """FORMAT: Bullet List
+- Open with ONE short scene-setting sentence (max 15 words).
+- Follow with 4-6 bullet points using "•" or "→" as the bullet character.
+- Each bullet is one tight line — benefit-focused, not feature-focused.
+- Close with a single-line CTA.
+FORBIDDEN: long paragraphs, rhetorical questions, wall-of-text between bullets.""",
+    },
+    "bold_headline": {
+        "label": "Bold Headline",
+        "spec": """FORMAT: Bold Headline
+- Start with a SHORT punchy headline (3-7 words) on its own line, in Title Case or ALL CAPS.
+- Follow with 1-2 short supporting sentences (max 25 words total).
+- End with a one-line CTA.
+- Total post should be SHORT — under 60 words.
+FORBIDDEN: multiple paragraphs, bullet lists, long explanations, rhetorical questions.""",
+    },
+    "before_after": {
+        "label": "Before / After",
+        "spec": """FORMAT: Before / After
+- Use a clear two-part structure with "BEFORE:" and "AFTER:" labels (or "❌ Before" / "✅ After").
+- Each side is 2-4 short lines describing a concrete scenario.
+- Optional one-line bridge/close summarising the transformation.
+FORBIDDEN: flowing prose paragraphs, rhetorical questions, generic greetings.""",
+    },
+    "question_hook": {
+        "label": "Question Hook",
+        "spec": """FORMAT: Question Hook
+- Open with ONE genuinely curious question that makes the reader pause (not a tired "Did you know..." or "Ever wondered...").
+- Follow with 2-3 sentences that answer or reframe the question.
+- Close with a CTA that invites a reply or DM.
+FORBIDDEN: multiple questions stacked, bullet lists, headline-style openers.""",
+    },
+    "stat_lead": {
+        "label": "Stat Lead",
+        "spec": """FORMAT: Stat Lead
+- Open with a concrete, attention-grabbing statistic or number on its own line (e.g. "30% lower energy bills." or "3 hours saved every week.").
+- Follow with 2-3 short sentences explaining the stat and what it means for the reader.
+- End with a one-line CTA.
+FORBIDDEN: vague claims without numbers, rhetorical questions, bullet lists.""",
+    },
+    "mini_story": {
+        "label": "Mini Story",
+        "spec": """FORMAT: Mini Story
+- Tell a tiny 3-act narrative: setup (1-2 sentences) → turn (1-2 sentences) → resolution with lesson (1-2 sentences).
+- Use a concrete character/scenario ("A Sydney homeowner called us last week…").
+- Close with a CTA that naturally follows the story's lesson.
+FORBIDDEN: bullet points, headlines, generic advice lists, rhetorical question openers.""",
+    },
+    "tip_of_day": {
+        "label": "Tip of the Day",
+        "spec": """FORMAT: Tip of the Day
+- Lead with a label like "💡 Smart Home Tip:" or "Quick Tip —" on its own line.
+- Deliver ONE specific, actionable tip in 2-3 short sentences.
+- Keep total length under 70 words.
+- End with a short CTA (or skip CTA if the tip itself is the value).
+FORBIDDEN: multi-tip lists, long storytelling, rhetorical questions, generic fluff.""",
+    },
+}
+
+
+EMOJI_DIRECTIVES = {
+    "heavy": "EMOJI DENSITY: Heavy — use 6-10 emojis spread through the post, including at the start of most lines/bullets. Emojis should feel expressive and energetic.",
+    "balanced": "EMOJI DENSITY: Balanced — use 2-4 emojis total, placed purposefully (e.g. one near the hook, one near the CTA). Avoid emoji on every line.",
+    "light": "EMOJI DENSITY: Light — use at most 1 emoji in the entire post, and only if it genuinely adds meaning. Prefer none.",
+    "none": "EMOJI DENSITY: None — do NOT use any emojis anywhere in the post. Pure text only.",
+}
+
+
+# Contrast buckets for multi-variant generation (3/3/2 split)
+FORMAT_BUCKETS = {
+    "long_form": ["classic_paragraph", "mini_story", "question_hook"],
+    "list_structured": ["bullet_list", "before_after", "stat_lead"],
+    "short_punchy": ["bold_headline", "tip_of_day"],
+}
 
 
 def pick_next_topic(recent_topics: list) -> dict:

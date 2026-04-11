@@ -34,7 +34,7 @@ VIDEO_PROVIDERS = {
     },
     "kling_free": {
         "name": "Kling AI (Free)",
-        "description": "Kling AI — good motion coherence, 66 free credits/day",
+        "description": "Kling AI v1 — good motion coherence, uses free starter credits",
         "paid": False,
         "needs_key": "kling_api_key",
         "max_length": 10,
@@ -50,12 +50,12 @@ VIDEO_PROVIDERS = {
         "quality": 5,
     },
     "kling_pro": {
-        "name": "Kling AI Pro",
-        "description": "Kling AI Pro — 1080p, no watermark",
+        "name": "Kling AI Pro (v2)",
+        "description": "Kling AI v2-master — cinematic quality, 1080p, no watermark (paid credits)",
         "paid": True,
         "needs_key": "kling_api_key",
         "max_length": 10,
-        "quality": 4,
+        "quality": 5,
     },
     "runway": {
         "name": "Runway Gen-4",
@@ -353,8 +353,10 @@ async def generate_video_kling(
     # Kling only accepts "5" or "10" — round to nearest valid value
     kling_duration = "5" if duration <= 5 else "10"
 
+    # kling-v2-master = paid (best quality); kling-v1 = free/standard
+    model_name = "kling-v2-master" if mode == "pro" else "kling-v1"
     payload = {
-        "model_name": "kling-v1",   # required field
+        "model_name": model_name,
         "prompt": prompt,
         "aspect_ratio": aspect_ratio,
         "duration": kling_duration,

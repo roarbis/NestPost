@@ -1,22 +1,42 @@
 import httpx
 import json
 import re
-from knowledge_base import CONNECTNEST_PROFILE, PLATFORM_GUIDELINES
+from knowledge_base import (
+    CONNECTNEST_PROFILE,
+    PLATFORM_GUIDELINES,
+    POST_FORMATS,
+    EMOJI_DIRECTIVES,
+)
 
 
-def build_prompt(platform: str, content_type: str, topic: str, angle: str, tone: str) -> tuple[str, str]:
+def build_prompt(
+    platform: str,
+    content_type: str,
+    topic: str,
+    angle: str,
+    tone: str,
+    post_format: str = "classic_paragraph",
+    emoji_density: str = "balanced",
+) -> tuple[str, str]:
     pg = PLATFORM_GUIDELINES.get(platform, PLATFORM_GUIDELINES["instagram"])
+    fmt = POST_FORMATS.get(post_format, POST_FORMATS["classic_paragraph"])
+    emoji_rule = EMOJI_DIRECTIVES.get(emoji_density, EMOJI_DIRECTIVES["balanced"])
 
-    system_prompt = f"""You are an expert social media content writer for ConnectNest, a smart home automation company in Melbourne, Australia.
+    system_prompt = f"""You are an expert social media content writer for ConnectNest, a smart home automation company serving homeowners across Australia.
 
 {CONNECTNEST_PROFILE}
 
-Your job is to write compelling, authentic social media content that connects with Melbourne homeowners.
+Your job is to write compelling, authentic social media content that connects with Australian homeowners.
 Always write in first person as ConnectNest. Never mention competitor brand names.
 Never copy generic content — make it specific, local, and genuinely useful.
+
+CRITICAL — follow the format spec below exactly. Do NOT default to your usual structure:
+{fmt['spec']}
+
+{emoji_rule}
 """
 
-    user_prompt = f"""Write a {platform.upper()} post for ConnectNest.
+    user_prompt = f"""Write a {platform.upper()} post for ConnectNest in the "{fmt['label']}" format.
 
 TOPIC: {topic}
 ANGLE: {angle}
@@ -27,8 +47,7 @@ PLATFORM REQUIREMENTS:
 - Tone: {pg['tone']}
 - Length: {pg['length']}
 - Hashtags: {pg['hashtags']}
-- Format: {pg['format']}
-- Emoji use: {pg['emoji_use']}
+- Format guideline (may be overridden by the format spec above): {pg['format']}
 
 Return ONLY a valid JSON object with exactly this structure (no markdown, no explanation, just JSON):
 {{
@@ -184,8 +203,13 @@ async def generate_post(
     ollama_url: str,
     ollama_model: str,
     api_keys: dict,
+    post_format: str = "classic_paragraph",
+    emoji_density: str = "balanced",
 ) -> dict:
-    system_p, user_p = build_prompt(platform, content_type, topic, angle, tone)
+    system_p, user_p = build_prompt(
+        platform, content_type, topic, angle, tone,
+        post_format=post_format, emoji_density=emoji_density,
+    )
 
     try:
         if ai_provider == "ollama":
