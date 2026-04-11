@@ -618,9 +618,9 @@ async function openModal(id) {
     } else {
       savedVideoSection.style.display = 'none';
     }
-    // Show video section only if post already has a video; otherwise hide (use Video Post wizard instead)
+    // Always show video section so users can generate video from any post
     const modalVideoSection = document.getElementById('modal-video-section');
-    if (modalVideoSection) modalVideoSection.style.display = item.video_path ? '' : 'none';
+    if (modalVideoSection) modalVideoSection.style.display = '';
     window._generatedVideoB64 = null;
     window._generatedVideoMime = null;
 
@@ -1205,6 +1205,7 @@ function updateVideoModelInfo() {
     veo3_paid:  { text: 'Uses your Gemini API key — full quality, $0.50/sec', color: '#fbbf24' },
     kling_free: { text: 'Uses Kling API key — 66 free credits/day, 720p watermarked', color: '#2dd4bf' },
     kling_pro:  { text: 'Uses Kling API key — 1080p, no watermark', color: '#fbbf24' },
+    atlascloud_video: { text: 'Uses Atlas Cloud API key — model configurable in Settings (Kling 3.0 Pro by default)', color: '#38bdf8' },
     runway:     { text: 'Uses Runway API key — $0.05-0.10/sec, strong character coherence', color: '#fbbf24' },
     luma:       { text: 'Uses Luma API key — $0.20/video, good for product reveals', color: '#fbbf24' },
   };
