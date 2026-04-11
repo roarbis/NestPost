@@ -252,12 +252,13 @@ async def logout(request: Request):
 
 @app.get("/api/me")
 async def current_user(request: Request):
-    """Return the currently logged-in user's info."""
+    """Return the currently logged-in user's info plus deployment environment."""
     token = request.cookies.get("session")
     user = get_session_user(token) if token else None
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    return user
+    # APP_ENV is set per-Render-service: 'staging' on nestpost-staging, unset (→production) on prod
+    return {**user, "app_env": os.environ.get("APP_ENV", "production").lower()}
 
 
 class ChangePasswordRequest(BaseModel):

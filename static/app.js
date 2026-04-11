@@ -1413,6 +1413,22 @@ async function loadCurrentUser() {
     // Show User Management nav for masteradmin only
     const navUsers = document.getElementById('nav-users');
     if (navUsers) navUsers.style.display = user.role === 'masteradmin' ? '' : 'none';
+    // Environment badge — only shown when not production
+    const envBadge = document.getElementById('env-badge');
+    if (envBadge && user.app_env && user.app_env !== 'production') {
+      envBadge.textContent = user.app_env.toUpperCase();
+      envBadge.style.display = 'inline-block';
+      // Colour-code: staging = amber, dev/other = red
+      if (user.app_env === 'staging') {
+        envBadge.style.background = '#fbbf24';
+        envBadge.style.color = '#78350f';
+      } else {
+        envBadge.style.background = '#ef4444';
+        envBadge.style.color = '#fff';
+      }
+      // Also tint the browser tab title so you can tell staging apart in the tab bar
+      document.title = `[${user.app_env.toUpperCase()}] ${document.title}`;
+    }
   } catch { /* silent */ }
 }
 
