@@ -837,13 +837,14 @@ async def _poll_atlascloud(prediction_id: str, api_key: str, max_wait: int = 300
             if status in ("succeeded", "completed", "success"):
                 # Try every known field shape Atlas Cloud might return the video URL in
                 inner = data.get("data") or {}
-                output = inner.get("output") or data.get("output")
+                # Atlas Cloud returns data.outputs (array) or data.output
+                output = inner.get("outputs") or inner.get("output") or data.get("outputs") or data.get("output")
 
                 video_url = None
-                if isinstance(output, str) and output.startswith("http"):
-                    video_url = output
-                elif isinstance(output, list) and output:
+                if isinstance(output, list) and output:
                     video_url = output[0] if isinstance(output[0], str) else None
+                elif isinstance(output, str) and output.startswith("http"):
+                    video_url = output
                 elif isinstance(output, dict):
                     video_url = (output.get("video_url") or output.get("url") or
                                  output.get("video") or output.get("mp4"))
