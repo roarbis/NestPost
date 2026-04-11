@@ -258,7 +258,11 @@ async def current_user(request: Request):
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     # APP_ENV is set per-Render-service: 'staging' on nestpost-staging, unset (→production) on prod
-    return {**user, "app_env": os.environ.get("APP_ENV", "production").lower()}
+    try:
+        version = open(os.path.join(os.path.dirname(__file__), "VERSION")).read().strip()
+    except Exception:
+        version = "unknown"
+    return {**user, "app_env": os.environ.get("APP_ENV", "production").lower(), "app_version": version}
 
 
 class ChangePasswordRequest(BaseModel):

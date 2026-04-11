@@ -1439,6 +1439,9 @@ async function loadCurrentUser() {
       // Also tint the browser tab title so you can tell staging apart in the tab bar
       document.title = `[${user.app_env.toUpperCase()}] ${document.title}`;
     }
+    // Version display
+    const verEl = document.getElementById('app-version');
+    if (verEl && user.app_version) verEl.textContent = `v${user.app_version}`;
   } catch { /* silent */ }
 }
 
