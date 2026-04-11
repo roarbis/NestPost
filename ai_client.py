@@ -174,6 +174,28 @@ async def call_deepseek(prompt_system: str, prompt_user: str, api_key: str) -> s
         return resp.json()["choices"][0]["message"]["content"]
 
 
+async def call_atlascloud(prompt_system: str, prompt_user: str, api_key: str, model: str = "deepseek-v3") -> str:
+    """Atlas Cloud — OpenAI-compatible aggregator (300+ models).
+    Base URL: https://api.atlascloud.ai/v1  |  Auth: Bearer token
+    Default model: deepseek-v3 (change via atlascloud_model setting)."""
+    if not api_key or not api_key.strip():
+        raise ValueError("Atlas Cloud API key not configured — add it in Settings")
+    url = "https://api.atlascloud.ai/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": prompt_system},
+            {"role": "user", "content": prompt_user},
+        ],
+        "temperature": 0.8,
+    }
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        resp = await client.post(url, json=payload, headers=headers)
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"]
+
+
 async def call_qwen(prompt_system: str, prompt_user: str, api_key: str) -> str:
     if not api_key or not api_key.strip():
         raise ValueError("Qwen API key not configured — add it in Settings")
@@ -222,6 +244,8 @@ async def generate_post(
             raw = await call_deepseek(system_p, user_p, api_keys.get("deepseek", ""))
         elif ai_provider == "qwen":
             raw = await call_qwen(system_p, user_p, api_keys.get("qwen", ""))
+        elif ai_provider == "atlascloud":
+            raw = await call_atlascloud(system_p, user_p, api_keys.get("atlascloud", ""), api_keys.get("atlascloud_model", "deepseek-v3"))
         else:
             raise ValueError(f"Unknown AI provider: {ai_provider}")
 

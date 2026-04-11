@@ -389,6 +389,7 @@ async def provider_status():
     groq_key = get_setting("groq_api_key", "")
     deepseek_key = get_setting("deepseek_api_key", "")
     qwen_key = get_setting("qwen_api_key", "")
+    atlascloud_key = get_setting("atlascloud_api_key", "")
     gemini_paid_key = get_setting("gemini_paid_api_key", "")
     stability_key = get_setting("stability_api_key", "")
     openai_key = get_setting("openai_api_key", "")
@@ -442,6 +443,14 @@ async def provider_status():
             {"Authorization": f"Bearer {qwen_key}"},
         )
 
+    async def check_atlascloud():
+        if not atlascloud_key or atlascloud_key == "••••••••":
+            return None
+        return await check_api_key_provider(
+            "https://api.atlascloud.ai/v1/models",
+            {"Authorization": f"Bearer {atlascloud_key}"},
+        )
+
     async def check_gemini_paid():
         if not gemini_paid_key or gemini_paid_key == "••••••••":
             return None
@@ -472,7 +481,7 @@ async def provider_status():
 
     results = await asyncio.gather(
         check_ollama(), check_groq(), check_gemini(),
-        check_deepseek(), check_qwen(),
+        check_deepseek(), check_qwen(), check_atlascloud(),
         check_gemini_paid(), check_stability(), check_openai(),
         return_exceptions=True,
     )
@@ -489,13 +498,14 @@ async def provider_status():
             "gemini": {"online": status_val(results[2])},
             "deepseek": {"online": status_val(results[3])},
             "qwen": {"online": status_val(results[4])},
+            "atlascloud": {"online": status_val(results[5])},
         },
         "image": {
             "imagen4": {"online": status_val(results[2]), "label": "Imagen 4"},
             "gemini_native": {"online": status_val(results[2]), "label": "Nano Banana"},
-            "gemini_native_paid": {"online": status_val(results[5]), "label": "Nano Banana 2"},
-            "stability": {"online": status_val(results[6]), "label": "Stability AI"},
-            "dalle": {"online": status_val(results[7]), "label": "DALL-E 3"},
+            "gemini_native_paid": {"online": status_val(results[6]), "label": "Nano Banana 2"},
+            "stability": {"online": status_val(results[7]), "label": "Stability AI"},
+            "dalle": {"online": status_val(results[8]), "label": "DALL-E 3"},
         },
         "video": {
             "veo3":   {"online": False,                                                                                    "paid": True,  "label": "Veo 3.1 (Google)"},
@@ -627,6 +637,8 @@ async def generate(req: GenerateRequest):
         "gemini": get_setting("gemini_api_key", ""),
         "deepseek": get_setting("deepseek_api_key", ""),
         "qwen": get_setting("qwen_api_key", ""),
+        "atlascloud": get_setting("atlascloud_api_key", ""),
+        "atlascloud_model": get_setting("atlascloud_model", "deepseek-v3"),
     }
 
     # Resolve topic
@@ -1403,6 +1415,7 @@ ENCRYPTED_KEYS = {
     "gemini_api_key",
     "deepseek_api_key",
     "qwen_api_key",
+    "atlascloud_api_key",
     "gemini_paid_api_key",
     "stability_api_key",
     "openai_api_key",
@@ -1429,6 +1442,8 @@ SETTINGS_KEYS = [
     "gemini_api_key",
     "deepseek_api_key",
     "qwen_api_key",
+    "atlascloud_api_key",
+    "atlascloud_model",
     "gemini_paid_api_key",
     "stability_api_key",
     "openai_api_key",

@@ -756,7 +756,10 @@ async function loadSettings() {
     if (imgProv && data.default_image_provider) imgProv.value = data.default_image_provider;
     const vidProv = document.getElementById('s-default-video-provider');
     if (vidProv && data.default_video_provider) vidProv.value = data.default_video_provider;
-    const sensitive = ['groq_api_key','gemini_api_key','deepseek_api_key','qwen_api_key','gemini_paid_api_key','stability_api_key','openai_api_key','linkedin_client_id','linkedin_client_secret','linkedin_access_token','facebook_page_id','facebook_access_token','kling_api_key','kling_secret_key','runway_api_key','luma_api_key','fal_api_key','pexels_api_key','r2_access_key_id','r2_secret_access_key'];
+    // Load non-sensitive Atlas Cloud model name
+    const acModel = document.getElementById('s-atlascloud-model');
+    if (acModel && data.atlascloud_model) acModel.value = data.atlascloud_model;
+    const sensitive = ['groq_api_key','gemini_api_key','deepseek_api_key','qwen_api_key','atlascloud_api_key','gemini_paid_api_key','stability_api_key','openai_api_key','linkedin_client_id','linkedin_client_secret','linkedin_access_token','facebook_page_id','facebook_access_token','kling_api_key','kling_secret_key','runway_api_key','luma_api_key','fal_api_key','pexels_api_key','r2_access_key_id','r2_secret_access_key'];
     // Non-sensitive R2 fields
     const r2Fields = { r2_account_id:'s-r2-account-id', r2_bucket_name:'s-r2-bucket-name', r2_public_url:'s-r2-public-url' };
     Object.entries(r2Fields).forEach(([k,id]) => { const el = document.getElementById(id); if (el && data[k]) el.value = data[k]; });
@@ -779,6 +782,8 @@ async function saveSettings() {
     gemini_api_key: document.getElementById('s-gemini-api-key')?.value,
     deepseek_api_key: document.getElementById('s-deepseek-api-key')?.value,
     qwen_api_key: document.getElementById('s-qwen-api-key')?.value,
+    atlascloud_api_key: document.getElementById('s-atlascloud-api-key')?.value,
+    atlascloud_model: document.getElementById('s-atlascloud-model')?.value,
     gemini_paid_api_key: document.getElementById('s-gemini-paid-api-key')?.value,
     stability_api_key: document.getElementById('s-stability-api-key')?.value,
     openai_api_key: document.getElementById('s-openai-api-key')?.value,
