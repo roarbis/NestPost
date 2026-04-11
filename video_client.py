@@ -835,11 +835,23 @@ async def _poll_atlascloud(prediction_id: str, api_key: str, max_wait: int = 300
             status = (data.get("data", {}).get("status") or data.get("status", "")).lower()
 
             if status in ("succeeded", "completed", "success"):
-                output = data.get("data", {}).get("output") or data.get("output") or {}
-                video_url = (
-                    output.get("video_url") or output.get("url") or
-                    data.get("data", {}).get("video_url") or data.get("video_url")
-                )
+                # Try every known field shape Atlas Cloud might return the video URL in
+                inner = data.get("data") or {}
+                output = inner.get("output") or data.get("output")
+
+                video_url = None
+                if isinstance(output, str) and output.startswith("http"):
+                    video_url = output
+                elif isinstance(output, list) and output:
+                    video_url = output[0] if isinstance(output[0], str) else None
+                elif isinstance(output, dict):
+                    video_url = (output.get("video_url") or output.get("url") or
+                                 output.get("video") or output.get("mp4"))
+                if not video_url:
+                    video_url = (inner.get("video_url") or inner.get("url") or
+                                 inner.get("video") or data.get("video_url") or
+                                 data.get("url") or data.get("video"))
+
                 if video_url:
                     # Download and return as base64
                     async with httpx.AsyncClient(timeout=60.0) as dl:
@@ -851,7 +863,10 @@ async def _poll_atlascloud(prediction_id: str, api_key: str, max_wait: int = 300
                         "video_base64": base64.b64encode(vresp.content).decode(),
                         "mime_type": "video/mp4",
                     }
-                return {"status": "error", "error": "Atlas Cloud: generation succeeded but no video URL in response"}
+                # Include truncated raw response to help diagnose field name
+                import json as _json
+                raw_snippet = _json.dumps(data)[:400]
+                return {"status": "error", "error": f"Atlas Cloud: no video URL found in response — {raw_snippet}"}
 
             if status in ("failed", "error", "cancelled"):
                 msg = data.get("data", {}).get("error") or data.get("error") or "Unknown error"
