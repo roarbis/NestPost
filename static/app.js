@@ -618,8 +618,9 @@ async function openModal(id) {
     } else {
       savedVideoSection.style.display = 'none';
     }
-    // Show/hide image vs video sections based on content_type
-    const isVideoPost = (item.content_type || '').toLowerCase().includes('video');
+    // Show/hide image vs video sections based on content_type or existing video data
+    const isVideoPost = (item.content_type || '').toLowerCase().includes('video') ||
+                        !!(item.video_path || item.video_prompt);
     const modalImageSection = document.getElementById('modal-image-section');
     const modalImageSuggestion = document.getElementById('modal-image-suggestion-section');
     const modalVideoSection = document.getElementById('modal-video-section');
@@ -1839,6 +1840,7 @@ async function wizardGenerate() {
     body.topic_id = wizardState.selectedTopicId;
   }
   if (customTopic) body.custom_topic = customTopic;
+  if (wizardState.intent === 'video') body.content_type = 'Video Post';
 
   // Show loading, hide wizard
   document.getElementById('wizard-card').style.display = 'none';
