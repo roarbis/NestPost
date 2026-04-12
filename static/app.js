@@ -618,14 +618,19 @@ async function openModal(id) {
     } else {
       savedVideoSection.style.display = 'none';
     }
-    // Always show video section so users can generate video from any post
+    // Show/hide image vs video sections based on content_type
+    const isVideoPost = (item.content_type || '').toLowerCase().includes('video');
+    const modalImageSection = document.getElementById('modal-image-section');
+    const modalImageSuggestion = document.getElementById('modal-image-suggestion-section');
     const modalVideoSection = document.getElementById('modal-video-section');
-    if (modalVideoSection) modalVideoSection.style.display = '';
+    if (modalImageSection) modalImageSection.style.display = isVideoPost ? 'none' : '';
+    if (modalImageSuggestion) modalImageSuggestion.style.display = isVideoPost ? 'none' : '';
+    if (modalVideoSection) modalVideoSection.style.display = isVideoPost ? '' : 'none';
     window._generatedVideoB64 = null;
     window._generatedVideoMime = null;
 
-    // Auto-generate video prompts on modal open (unless post already has a prompt)
-    if (!item.video_prompt) suggestVideoPrompts();
+    // Auto-generate video prompts on modal open for video posts
+    if (isVideoPost && !item.video_prompt) suggestVideoPrompts();
 
     const approveBtn = document.getElementById('modal-approve-btn');
     approveBtn.innerHTML = item.status === 'approved' ? '<svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg> Approved' : '<svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg> Approve';
