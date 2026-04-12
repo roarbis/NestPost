@@ -1162,6 +1162,7 @@ class GenerateVideoRequest(BaseModel):
     duration: int = 8
     use_paid: bool = False
     append_cta: bool = True
+    negative_prompt: str = ""
     idempotency_key: Optional[str] = None
 
 
@@ -1199,6 +1200,7 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
             api_keys=api_keys,
             aspect_ratio=req.aspect_ratio,
             duration=req.duration,
+            negative_prompt=req.negative_prompt,
         )
 
         if result.get("status") == "rate_limited":

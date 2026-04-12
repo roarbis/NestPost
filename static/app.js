@@ -1304,6 +1304,8 @@ async function suggestVideoPrompts() {
       card.onmouseout = () => { card.style.borderColor = borderColor + '40'; card.style.background = 'rgba(15,23,42,0.6)'; };
       card.onclick = () => {
         document.getElementById('modal-video-prompt').value = p.prompt;
+        const negEl = document.getElementById('modal-video-negative-prompt');
+        if (negEl && p.negative_prompt) negEl.value = p.negative_prompt;
         const aspectSelect = document.getElementById('modal-video-aspect');
         if (aspectSelect && p.suggested_aspect_ratio) aspectSelect.value = p.suggested_aspect_ratio;
         const durSelect = document.getElementById('modal-video-duration');
@@ -1350,6 +1352,7 @@ async function generateVideo() {
 
   try {
     const appendCta = document.getElementById('modal-video-append-cta')?.checked ?? true;
+    const negativePrompt = document.getElementById('modal-video-negative-prompt')?.value?.trim() || '';
     const data = await api('/api/video/generate', 'POST', {
       content_id: modalItemId,
       prompt,
@@ -1357,6 +1360,7 @@ async function generateVideo() {
       aspect_ratio: aspectRatio,
       duration,
       append_cta: appendCta,
+      negative_prompt: negativePrompt,
     });
 
     if (data.video_base64) {
