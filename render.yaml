@@ -20,10 +20,9 @@ services:
   # ── Staging ───────────────────────────────────────────────────────────────────
   - type: web
     name: nestpost-staging
-    runtime: python
+    runtime: docker
+    dockerfilePath: ./Dockerfile
     branch: staging
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     autoDeploy: true
     envVars:
       - key: TURSO_DATABASE_URL

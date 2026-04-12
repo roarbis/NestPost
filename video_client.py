@@ -876,6 +876,65 @@ async def _poll_atlascloud(prediction_id: str, api_key: str, max_wait: int = 300
     return {"status": "error", "error": f"Atlas Cloud: timed out after {max_wait}s"}
 
 
+# ── CTA Video Concat ─────────────────────────────────────────────────────────
+
+def concat_cta_video(main_b64: str, cta_b64: str, mime_type: str = "video/mp4") -> str:
+    """Concatenate main video + CTA clip using FFmpeg.
+    Both inputs are base64-encoded. Returns base64-encoded merged mp4."""
+    import base64
+    import subprocess
+    import tempfile
+    import os
+
+    ext = "mp4"
+    with tempfile.TemporaryDirectory() as tmp:
+        main_path = os.path.join(tmp, f"main.{ext}")
+        cta_path  = os.path.join(tmp, f"cta.{ext}")
+        out_path  = os.path.join(tmp, f"out.{ext}")
+        list_path = os.path.join(tmp, "concat.txt")
+
+        with open(main_path, "wb") as f:
+            f.write(base64.b64decode(main_b64))
+        with open(cta_path, "wb") as f:
+            f.write(base64.b64decode(cta_b64))
+
+        # FFmpeg concat demuxer — lossless, no re-encode needed when codecs match
+        with open(list_path, "w") as f:
+            f.write(f"file '{main_path}'\nfile '{cta_path}'\n")
+
+        result = subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-f", "concat", "-safe", "0",
+                "-i", list_path,
+                "-c", "copy",
+                out_path,
+            ],
+            capture_output=True,
+            timeout=120,
+        )
+
+        if result.returncode != 0:
+            # If codec copy fails (different codecs/resolutions), re-encode
+            result = subprocess.run(
+                [
+                    "ffmpeg", "-y",
+                    "-f", "concat", "-safe", "0",
+                    "-i", list_path,
+                    "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                    "-c:a", "aac",
+                    out_path,
+                ],
+                capture_output=True,
+                timeout=180,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(f"FFmpeg concat failed: {result.stderr.decode()[:300]}")
+
+        with open(out_path, "rb") as f:
+            return base64.b64encode(f.read()).decode()
+
+
 # ── Cloudflare R2 Storage ─────────────────────────────────────────────────────
 
 def _get_r2_client(account_id: str, access_key_id: str, secret_access_key: str):
@@ -899,6 +958,7 @@ def upload_video_to_r2(
     secret_access_key: str,
     bucket_name: str,
     public_url: str,
+    filename_override: str = "",
 ) -> str:
     """Upload a base64-encoded video to Cloudflare R2.
     Returns the public URL of the uploaded video."""
@@ -907,7 +967,7 @@ def upload_video_to_r2(
 
     video_bytes = base64.b64decode(video_base64)
     ext = "mp4" if "mp4" in mime_type else "webm"
-    key = f"videos/{content_id}/{uuid.uuid4().hex}.{ext}"
+    key = f"assets/{filename_override}" if filename_override else f"videos/{content_id}/{uuid.uuid4().hex}.{ext}"
 
     client = _get_r2_client(account_id, access_key_id, secret_access_key)
     client.put_object(

@@ -999,6 +999,23 @@
             <input id="s-atlascloud-video-model" class="inp" type="text" placeholder="kwaivgi/kling-v3.0-pro/text-to-video" />
             <div style="font-size:0.72rem;color:#475569;margin-top:4px;">Enter any Atlas Cloud video model ID. Find models at atlascloud.ai/models — uses the same API key as Atlas Cloud text.</div>
           </div>
+
+          <!-- CTA Video Upload -->
+          <div style="border-top:1px solid rgba(255,255,255,0.06);padding-top:16px;">
+            <label class="lbl">CTA Video Clip <span style="color:#a78bfa;font-weight:600;font-size:0.7rem;background:rgba(167,139,250,0.12);padding:2px 7px;border-radius:99px;margin-left:4px;">Auto-append</span></label>
+            <div style="font-size:0.72rem;color:#475569;margin-bottom:10px;">Upload your CTA clip once — it will be automatically appended to every generated video. Requires FFmpeg (available on Render Docker builds).</div>
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+              <div id="cta-status-badge" style="display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:8px;background:rgba(15,23,42,0.6);border:1px solid rgba(255,255,255,0.08);font-size:0.78rem;color:#94a3b8;">
+                <span id="cta-status-dot" style="width:7px;height:7px;border-radius:50%;background:#475569;flex-shrink:0;"></span>
+                <span id="cta-status-text">Loading...</span>
+              </div>
+              <label style="cursor:pointer;">
+                <input type="file" id="cta-file-input" accept="video/*" style="display:none;" onchange="uploadCtaVideo(this)" />
+                <span class="btn-ghost" style="font-size:0.8rem;padding:6px 14px;cursor:pointer;" onclick="document.getElementById('cta-file-input').click()">📎 Upload CTA clip</span>
+              </label>
+              <button id="cta-delete-btn" onclick="deleteCtaVideo()" style="display:none;" class="btn-ghost" style="font-size:0.8rem;padding:6px 14px;color:#f87171;">🗑 Remove</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -1373,10 +1390,16 @@
           </div>
         </div>
 
-        <!-- Use paid models checkbox -->
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">
-          <input type="checkbox" id="modal-video-use-paid" onchange="toggleVideoPaidModels()" style="accent-color:#ec4899;width:16px;height:16px;">
-          <label for="modal-video-use-paid" style="font-size:0.8rem;color:#f1f5f9;cursor:pointer;">Use paid models <span style="color:#64748b;font-size:0.72rem;">(higher quality, costs per generation)</span></label>
+        <!-- Checkboxes row -->
+        <div style="display:flex;align-items:center;gap:20px;margin-bottom:14px;flex-wrap:wrap;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <input type="checkbox" id="modal-video-use-paid" onchange="toggleVideoPaidModels()" style="accent-color:#ec4899;width:16px;height:16px;">
+            <label for="modal-video-use-paid" style="font-size:0.8rem;color:#f1f5f9;cursor:pointer;">Use paid models <span style="color:#64748b;font-size:0.72rem;">(higher quality, costs per generation)</span></label>
+          </div>
+          <div id="modal-cta-wrap" style="display:flex;align-items:center;gap:8px;display:none;">
+            <input type="checkbox" id="modal-video-append-cta" style="accent-color:#a78bfa;width:16px;height:16px;" checked>
+            <label for="modal-video-append-cta" style="font-size:0.8rem;color:#f1f5f9;cursor:pointer;">Concatenate CTA video <span style="color:#64748b;font-size:0.72rem;">(append your CTA clip to the end)</span></label>
+          </div>
         </div>
 
         <div id="modal-video-model-info" style="font-size:0.72rem;color:#64748b;margin-bottom:14px;display:flex;align-items:center;gap:6px;">

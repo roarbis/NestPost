@@ -39,7 +39,7 @@ initTheme();
 document.addEventListener('DOMContentLoaded', async () => {
   showPage('generate');
   setGreeting();
-  await Promise.all([loadHealth(), loadStats(), loadSuggestions(), loadModels(), loadSettings(), loadCurrentUser(), loadBrandLogo(), loadR2Status()]);
+  await Promise.all([loadHealth(), loadStats(), loadSuggestions(), loadModels(), loadSettings(), loadCurrentUser(), loadBrandLogo(), loadR2Status(), loadCtaStatus()]);
   loadRecentContent();
 });
 
@@ -863,6 +863,64 @@ async function triggerVideoCleanup() {
   }
 }
 
+// ── CTA Video ─────────────────────────────────────────────────────────────────
+
+async function loadCtaStatus() {
+  try {
+    const data = await api('/api/video/cta/status');
+    const dot = document.getElementById('cta-status-dot');
+    const text = document.getElementById('cta-status-text');
+    const delBtn = document.getElementById('cta-delete-btn');
+    if (!dot || !text) return;
+    const ctaWrap = document.getElementById('modal-cta-wrap');
+    if (data.configured) {
+      dot.style.background = '#a78bfa';
+      text.textContent = data.storage === 'r2' ? 'CTA clip uploaded (R2)' : 'CTA clip uploaded (local)';
+      text.style.color = '#a78bfa';
+      if (delBtn) delBtn.style.display = '';
+      if (ctaWrap) ctaWrap.style.display = 'flex';
+    } else {
+      dot.style.background = '#475569';
+      text.textContent = 'No CTA clip uploaded';
+      text.style.color = '#94a3b8';
+      if (delBtn) delBtn.style.display = 'none';
+      if (ctaWrap) ctaWrap.style.display = 'none';
+    }
+  } catch { /* silent */ }
+}
+
+async function uploadCtaVideo(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const text = document.getElementById('cta-status-text');
+  if (text) { text.textContent = 'Uploading...'; text.style.color = '#94a3b8'; }
+  try {
+    const b64 = await new Promise((res, rej) => {
+      const reader = new FileReader();
+      reader.onload = e => res(e.target.result.split(',')[1]);
+      reader.onerror = rej;
+      reader.readAsDataURL(file);
+    });
+    await api('/api/video/cta/upload', 'POST', { video_base64: b64, mime_type: file.type || 'video/mp4' });
+    showToast('CTA clip uploaded — will be appended to future videos', 'success');
+    loadCtaStatus();
+  } catch (err) {
+    showToast('CTA upload failed: ' + err.message, 'error');
+    loadCtaStatus();
+  }
+  input.value = '';
+}
+
+async function deleteCtaVideo() {
+  try {
+    await api('/api/video/cta', 'DELETE');
+    showToast('CTA clip removed', 'success');
+    loadCtaStatus();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
 // ── Brand Logo Management ─────────────────────────────────────────────────
 async function loadBrandLogo() {
   try {
@@ -1291,12 +1349,14 @@ async function generateVideo() {
   result.style.display = 'none';
 
   try {
+    const appendCta = document.getElementById('modal-video-append-cta')?.checked ?? true;
     const data = await api('/api/video/generate', 'POST', {
       content_id: modalItemId,
       prompt,
       provider,
       aspect_ratio: aspectRatio,
       duration,
+      append_cta: appendCta,
     });
 
     if (data.video_base64) {
