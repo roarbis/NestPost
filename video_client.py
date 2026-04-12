@@ -815,16 +815,17 @@ async def generate_video_atlascloud(
     return await _poll_atlascloud(prediction_id, api_key)
 
 
-async def _poll_atlascloud(prediction_id: str, api_key: str, max_wait: int = 300) -> dict:
-    """Poll Atlas Cloud prediction endpoint every 5 seconds until complete."""
+async def _poll_atlascloud(prediction_id: str, api_key: str, max_wait: int = 600) -> dict:
+    """Poll Atlas Cloud prediction endpoint every 10 seconds until complete.
+    Kling 3.0 Pro can take 8-10 minutes — max_wait set to 600s."""
     url = f"https://api.atlascloud.ai/api/v1/model/prediction/{prediction_id}"
     headers = {"Authorization": f"Bearer {api_key}"}
     elapsed = 0
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         while elapsed < max_wait:
-            await asyncio.sleep(5)
-            elapsed += 5
+            await asyncio.sleep(10)
+            elapsed += 10
             try:
                 resp = await client.get(url, headers=headers)
                 resp.raise_for_status()
@@ -873,7 +874,7 @@ async def _poll_atlascloud(prediction_id: str, api_key: str, max_wait: int = 300
                 msg = data.get("data", {}).get("error") or data.get("error") or "Unknown error"
                 return {"status": "error", "error": f"Atlas Cloud generation failed: {msg}"}
 
-    return {"status": "error", "error": f"Atlas Cloud: timed out after {max_wait}s"}
+    return {"status": "error", "error": f"Atlas Cloud: timed out after {max_wait}s — try a lighter model or shorter duration"}
 
 
 # ── CTA Video Concat ─────────────────────────────────────────────────────────
