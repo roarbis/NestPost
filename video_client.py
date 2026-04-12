@@ -130,8 +130,8 @@ async def generate_video_prompts(
     system = (
         "You are a senior video director and AI video prompt engineer specialising in smart home "
         "and PropTech content for Australian social media (Instagram Reels, TikTok, LinkedIn).\n\n"
-        "Given a social media post, generate THREE distinct cinematography briefs for AI video "
-        "models (Kling, Veo, Runway). Each brief must be detailed enough that the AI model can "
+        "Given a social media post, generate THREE distinct cinematography briefs optimised for "
+        "any AI video model. Each brief must be detailed enough that the AI model can "
         "produce a publish-ready Reel with no ambiguity.\n\n"
 
         "═══ SMART HOME TECHNICAL VOCABULARY ═══\n"

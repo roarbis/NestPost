@@ -624,6 +624,9 @@ async function openModal(id) {
     window._generatedVideoB64 = null;
     window._generatedVideoMime = null;
 
+    // Auto-generate video prompts on modal open (unless post already has a prompt)
+    if (!item.video_prompt) suggestVideoPrompts();
+
     const approveBtn = document.getElementById('modal-approve-btn');
     approveBtn.innerHTML = item.status === 'approved' ? '<svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg> Approved' : '<svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg> Approve';
     approveBtn.disabled = item.status === 'approved';
@@ -1328,7 +1331,7 @@ async function suggestVideoPrompts() {
   } catch (err) {
     showToast(err.message, 'error');
   } finally {
-    btn.textContent = '🎬 Suggest Prompts';
+    btn.textContent = '🔄 Regenerate Prompts';
     btn.disabled = false;
   }
 }
