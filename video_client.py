@@ -850,7 +850,9 @@ async def generate_video_atlascloud(
         "aspect_ratio": aspect_ratio,
         "duration": duration,
     }
-    if negative_prompt:
+    # OpenAI (Sora) and Google (Veo) models don't support negative_prompt — omit to avoid rejection
+    _no_negative_prompt_prefixes = ("openai/", "google/")
+    if negative_prompt and not any(model.startswith(p) for p in _no_negative_prompt_prefixes):
         payload["negative_prompt"] = negative_prompt
 
     async with httpx.AsyncClient(timeout=30.0) as client:
