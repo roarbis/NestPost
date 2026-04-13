@@ -848,7 +848,7 @@ async def generate_video_atlascloud(
         "model": model,
         "prompt": prompt,
         "aspect_ratio": aspect_ratio,
-        "duration": str(duration),
+        "duration": duration,
     }
     if negative_prompt:
         payload["negative_prompt"] = negative_prompt
