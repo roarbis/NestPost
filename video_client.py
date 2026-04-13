@@ -115,6 +115,75 @@ VIDEO_ASPECT_RATIOS = {
 }
 
 
+# ── Atlas Cloud Model Registry ───────────────────────────────────────────────
+
+ATLASCLOUD_MODELS = {
+    "google/veo3.1-lite/text-to-video": {
+        "label": "Veo 3.1 Lite",
+        "cost_per_sec": 0.05,
+        "duration_options": [4, 6, 8],
+        "duration_default": 8,
+        "aspect_field": "aspect_ratio",
+        "aspect_options": {"16:9": "Landscape", "9:16": "Portrait (Reels)"},
+        "resolution_options": ["720p", "1080p"],
+        "resolution_default": "720p",
+        "supports_negative_prompt": False,
+        "supports_audio": False,
+        "extra_defaults": {"seed": -1},
+        "prompt_style": "visual_only",
+        "description": "Budget-friendly Google model — fast, clean output",
+    },
+    "kwaivgi/kling-v3.0-pro/text-to-video": {
+        "label": "Kling 3.0 Pro",
+        "cost_per_sec": 0.095,
+        "duration_options": [3, 5, 8, 10, 15],
+        "duration_default": 5,
+        "aspect_field": "aspect_ratio",
+        "aspect_options": {"16:9": "Landscape", "9:16": "Portrait (Reels)", "1:1": "Square"},
+        "resolution_options": None,
+        "resolution_default": None,
+        "supports_negative_prompt": True,
+        "supports_audio": False,
+        "extra_defaults": {"cfg_scale": 0.5, "sound": False},
+        "prompt_style": "cinematic_detailed",
+        "description": "Best for cinematic smart home — supports negative prompts",
+    },
+    "openai/sora-2/text-to-video": {
+        "label": "Sora 2",
+        "cost_per_sec": 0.10,
+        "duration_options": [4, 8, 12],
+        "duration_default": 8,
+        "aspect_field": "size",
+        "aspect_options": {"1280x720": "Landscape (1280x720)", "720x1280": "Portrait (720x1280)"},
+        "resolution_options": None,
+        "resolution_default": None,
+        "supports_negative_prompt": False,
+        "supports_audio": False,
+        "extra_defaults": {},
+        "prompt_style": "narrative_rich",
+        "description": "Excels at complex scenes with human motion & narrative",
+    },
+    "google/veo3.1/text-to-video": {
+        "label": "Veo 3.1",
+        "cost_per_sec": 0.20,
+        "duration_options": [4, 6, 8],
+        "duration_default": 8,
+        "aspect_field": "aspect_ratio",
+        "aspect_options": {"16:9": "Landscape", "9:16": "Portrait (Reels)"},
+        "resolution_options": ["720p", "1080p"],
+        "resolution_default": "1080p",
+        "supports_negative_prompt": True,
+        "supports_audio": True,
+        "extra_defaults": {"seed": 1},
+        "prompt_style": "cinematic_audio",
+        "description": "Premium — supports audio generation & negative prompts",
+    },
+}
+
+# Sorted by cost for UI display
+ATLASCLOUD_MODELS_SORTED = sorted(ATLASCLOUD_MODELS.items(), key=lambda x: x[1]["cost_per_sec"])
+
+
 # ── Video prompt generation (uses Gemini to create 3 style variants) ──────────
 
 async def generate_video_prompts(
@@ -123,16 +192,59 @@ async def generate_video_prompts(
     image_suggestion: str,
     hook: str,
     api_key: str,
+    model_id: str = "",
 ) -> list[dict]:
     """Generate 3 video prompt variants (cinematic, dynamic, minimal) from post content.
-    Returns list of {style, prompt, suggested_length, suggested_aspect_ratio}."""
+    When model_id is provided, tailors prompts to that model's capabilities.
+    Returns list of {style, prompt, negative_prompt, suggested_length, suggested_aspect_ratio}."""
+
+    # Model-specific context for prompt tailoring
+    model_cfg = ATLASCLOUD_MODELS.get(model_id, {})
+    model_context = ""
+    if model_cfg:
+        dur_opts = model_cfg.get("duration_options", [])
+        asp_opts = list(model_cfg.get("aspect_options", {}).keys())
+        model_context = f"\n═══ TARGET MODEL: {model_cfg['label']} ═══\n"
+        model_context += f"Valid durations: {dur_opts}\n"
+        model_context += f"Valid aspect ratios/sizes: {asp_opts}\n"
+        if model_cfg.get("supports_audio"):
+            model_context += (
+                "This model supports AUDIO GENERATION. Include ambient sound descriptions "
+                "in each brief (e.g. 'soft hum of HVAC, click of a smart lock, "
+                "gentle chime of a doorbell notification, quiet mechanical whir of motorised blinds'). "
+                "Write sound in a separate sentence starting with 'Ambient sound:'\n"
+            )
+        if not model_cfg.get("supports_negative_prompt"):
+            model_context += (
+                "This model does NOT support negative prompts. "
+                "Still generate a negative_prompt field for reference, but the user should know "
+                "it won't be sent to the API. Fold key exclusions INTO the main prompt as "
+                "positive instructions (e.g. 'smooth steady camera' instead of relying on "
+                "'no shaky camera' in negative prompt).\n"
+            )
+        if model_cfg.get("prompt_style") == "narrative_rich":
+            model_context += (
+                "This model excels at complex narrative scenes with human motion. "
+                "Write prompts as rich descriptive narratives — describe character actions, "
+                "emotional beats, and scene progression in flowing prose.\n"
+            )
+        if model_cfg.get("prompt_style") == "visual_only":
+            model_context += (
+                "This is a budget model. Keep prompts focused on clean visual scenes. "
+                "Avoid overly complex multi-subject scenes.\n"
+            )
+        model_context += (
+            f"IMPORTANT: suggested_length MUST be one of {dur_opts}. "
+            f"suggested_aspect_ratio MUST be one of {asp_opts}.\n\n"
+        )
 
     system = (
         "You are a senior video director and AI video prompt engineer specialising in smart home "
         "and PropTech content for Australian social media (Instagram Reels, TikTok, LinkedIn).\n\n"
         "Given a social media post, generate THREE distinct cinematography briefs optimised for "
-        "any AI video model. Each brief must be detailed enough that the AI model can "
+        "AI video generation. Each brief must be detailed enough that the AI model can "
         "produce a publish-ready Reel with no ambiguity.\n\n"
+        + model_context
 
         "═══ SMART HOME TECHNICAL VOCABULARY ═══\n"
         "Use these terms naturally where relevant to the post:\n"
@@ -782,6 +894,8 @@ async def generate_video(
     aspect_ratio: str = "9:16",
     duration: int = 8,
     negative_prompt: str = "",
+    resolution: str = "",
+    generate_audio: bool = False,
 ) -> dict:
     """Route video generation to the appropriate provider.
     Returns {status, video_base64, mime_type} or {status, error}."""
@@ -823,7 +937,10 @@ async def generate_video(
         model = api_keys.get("atlascloud_video_model", "kwaivgi/kling-v3.0-pro/text-to-video")
         if not key:
             raise ValueError("Atlas Cloud API key required — add it in Settings")
-        return await generate_video_atlascloud(prompt, key, model, aspect_ratio, duration, negative_prompt)
+        return await generate_video_atlascloud(
+            prompt, key, model, aspect_ratio, duration,
+            negative_prompt, resolution, generate_audio,
+        )
 
     else:
         raise ValueError(f"Unknown video provider: {provider}")
@@ -836,24 +953,42 @@ async def generate_video_atlascloud(
     aspect_ratio: str = "9:16",
     duration: int = 5,
     negative_prompt: str = "",
+    resolution: str = "",
+    generate_audio: bool = False,
 ) -> dict:
     """Generate video via Atlas Cloud aggregator API (queue-based).
-    Docs: https://www.atlascloud.ai/docs/models/video
+    Builds payload dynamically from ATLASCLOUD_MODELS config.
     POST /api/v1/model/generateVideo → returns prediction_id → poll /api/v1/model/prediction/{id}"""
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
-    payload = {
-        "model": model,
-        "prompt": prompt,
-        "aspect_ratio": aspect_ratio,
-        "duration": duration,
-    }
-    # OpenAI (Sora) and Google (Veo) models don't support negative_prompt — omit to avoid rejection
-    _no_negative_prompt_prefixes = ("openai/", "google/")
-    if negative_prompt and not any(model.startswith(p) for p in _no_negative_prompt_prefixes):
+
+    model_cfg = ATLASCLOUD_MODELS.get(model, {})
+
+    # Build payload dynamically based on model config
+    payload = {"model": model, "prompt": prompt, "duration": duration}
+
+    # Aspect ratio / size — Sora uses "size", others use "aspect_ratio"
+    aspect_field = model_cfg.get("aspect_field", "aspect_ratio")
+    payload[aspect_field] = aspect_ratio
+
+    # Negative prompt — only for models that support it
+    if negative_prompt and model_cfg.get("supports_negative_prompt", False):
         payload["negative_prompt"] = negative_prompt
+
+    # Resolution — Veo models
+    if resolution and model_cfg.get("resolution_options"):
+        payload["resolution"] = resolution
+
+    # Audio — Veo 3.1 full
+    if model_cfg.get("supports_audio") and generate_audio:
+        payload["generate_audio"] = True
+
+    # Extra model defaults (cfg_scale, sound, seed, etc.)
+    for k, v in model_cfg.get("extra_defaults", {}).items():
+        if k not in payload:
+            payload[k] = v
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(

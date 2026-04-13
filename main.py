@@ -33,7 +33,7 @@ from image_client import (
 )
 from video_client import (
     generate_video, generate_video_prompts, search_stock_footage,
-    VIDEO_PROVIDERS, VIDEO_ASPECT_RATIOS,
+    VIDEO_PROVIDERS, VIDEO_ASPECT_RATIOS, ATLASCLOUD_MODELS, ATLASCLOUD_MODELS_SORTED,
     upload_video_to_r2, delete_video_from_r2, is_r2_configured,
     concat_cta_video,
 )
@@ -1124,8 +1124,18 @@ async def list_video_providers():
     return {"providers": VIDEO_PROVIDERS, "aspect_ratios": VIDEO_ASPECT_RATIOS}
 
 
+@app.get("/api/video/atlascloud-models")
+async def list_atlascloud_models():
+    """Return Atlas Cloud model configs sorted by cost for frontend model picker."""
+    return {"models": [
+        {"id": model_id, **cfg}
+        for model_id, cfg in ATLASCLOUD_MODELS_SORTED
+    ]}
+
+
 class VideoPromptRequest(BaseModel):
     content_id: int
+    model_id: str = ""
 
 
 @app.post("/api/video/suggest-prompts")
@@ -1148,6 +1158,7 @@ async def suggest_video_prompts(req: VideoPromptRequest):
             image_suggestion=row["image_suggestion"] or "",
             hook=row["hook"] or "",
             api_key=gemini_key,
+            model_id=req.model_id,
         )
         return {"prompts": prompts, "content_id": req.content_id}
     except Exception as e:
@@ -1163,6 +1174,9 @@ class GenerateVideoRequest(BaseModel):
     use_paid: bool = False
     append_cta: bool = True
     negative_prompt: str = ""
+    resolution: str = ""
+    generate_audio: bool = False
+    model_id: str = ""  # Atlas Cloud specific model ID
     idempotency_key: Optional[str] = None
 
 
@@ -1190,7 +1204,7 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
         "luma": get_setting("luma_api_key", ""),
         "fal": get_setting("fal_api_key", ""),
         "atlascloud": get_setting("atlascloud_api_key", ""),
-        "atlascloud_video_model": get_setting("atlascloud_video_model", "kwaivgi/kling-v3.0-pro/text-to-video"),
+        "atlascloud_video_model": req.model_id or get_setting("atlascloud_video_model", "kwaivgi/kling-v3.0-pro/text-to-video"),
     }
 
     try:
@@ -1201,6 +1215,8 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
             aspect_ratio=req.aspect_ratio,
             duration=req.duration,
             negative_prompt=req.negative_prompt,
+            resolution=req.resolution,
+            generate_audio=req.generate_audio,
         )
 
         if result.get("status") == "rate_limited":

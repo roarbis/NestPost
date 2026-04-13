@@ -39,7 +39,7 @@ initTheme();
 document.addEventListener('DOMContentLoaded', async () => {
   showPage('generate');
   setGreeting();
-  await Promise.all([loadHealth(), loadStats(), loadSuggestions(), loadModels(), loadSettings(), loadCurrentUser(), loadBrandLogo(), loadR2Status(), loadCtaStatus()]);
+  await Promise.all([loadHealth(), loadStats(), loadSuggestions(), loadModels(), loadSettings(), loadCurrentUser(), loadBrandLogo(), loadR2Status(), loadCtaStatus(), loadAtlasCloudModels()]);
   loadRecentContent();
 });
 
@@ -630,8 +630,16 @@ async function openModal(id) {
     window._generatedVideoB64 = null;
     window._generatedVideoMime = null;
 
-    // Auto-generate video prompts on modal open for video posts
-    if (isVideoPost && !item.video_prompt) suggestVideoPrompts();
+    // Reset model selection state for video section
+    _selectedAtlasModel = null;
+    renderAtlasModelCards();
+    const paramsEl = document.getElementById('modal-video-params');
+    if (paramsEl) paramsEl.style.display = 'none';
+    document.getElementById('modal-video-suggestions').style.display = 'none';
+    const promptLoading = document.getElementById('modal-video-prompt-loading');
+    if (promptLoading) promptLoading.style.display = 'none';
+    const suggestBtn = document.getElementById('modal-video-suggest-btn');
+    if (suggestBtn) suggestBtn.style.display = 'none';
 
     const approveBtn = document.getElementById('modal-approve-btn');
     approveBtn.innerHTML = item.status === 'approved' ? '<svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg> Approved' : '<svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg> Approve';
@@ -1263,42 +1271,140 @@ async function removeImage() {
 
 // ── Video Generation ─────────────────────────────────────────────────────
 
-function updateVideoModelInfo() {
-  const provider = document.getElementById('modal-video-provider')?.value;
-  const info = document.getElementById('modal-video-model-info');
-  if (!info) return;
-  const providerInfo = {
-    veo3_free:  { text: 'Uses your Gemini API key — top quality, ~5-10 free generations/day', color: '#2dd4bf' },
-    veo3_paid:  { text: 'Uses your Gemini API key — full quality, $0.50/sec', color: '#fbbf24' },
-    kling_free: { text: 'Uses Kling API key — 66 free credits/day, 720p watermarked', color: '#2dd4bf' },
-    kling_pro:  { text: 'Uses Kling API key — 1080p, no watermark', color: '#fbbf24' },
-    atlascloud_video: { text: 'Uses Atlas Cloud API key — model configurable in Settings (Kling 3.0 Pro by default)', color: '#38bdf8' },
-    runway:     { text: 'Uses Runway API key — $0.05-0.10/sec, strong character coherence', color: '#fbbf24' },
-    luma:       { text: 'Uses Luma API key — $0.20/video, good for product reveals', color: '#fbbf24' },
-  };
-  const p = providerInfo[provider] || providerInfo.veo3_free;
-  info.innerHTML = `<span style="width:6px;height:6px;border-radius:50%;background:${p.color};display:inline-block;"></span> ${p.text}`;
+// ── Atlas Cloud Model Selection & Video Generation ──────────────────────────
+
+let _atlascloudModels = [];
+let _selectedAtlasModel = null;
+
+async function loadAtlasCloudModels() {
+  try {
+    const data = await api('/api/video/atlascloud-models');
+    _atlascloudModels = data.models || [];
+    renderAtlasModelCards();
+  } catch { /* silent */ }
 }
 
-function toggleVideoPaidModels() {
-  const usePaid = document.getElementById('modal-video-use-paid')?.checked;
-  const select = document.getElementById('modal-video-provider');
-  if (!select) return;
-  if (usePaid) {
-    select.value = 'veo3_paid';
-  } else {
-    select.value = 'veo3_free';
+function renderAtlasModelCards() {
+  const container = document.getElementById('modal-atlascloud-model-cards');
+  if (!container) return;
+  container.innerHTML = '';
+
+  const colors = ['#2dd4bf', '#6366f1', '#f97316', '#a78bfa'];
+  _atlascloudModels.forEach((m, i) => {
+    const isSelected = _selectedAtlasModel === m.id;
+    const color = colors[i] || '#6366f1';
+    const card = document.createElement('div');
+    card.dataset.modelId = m.id;
+    card.style.cssText = `background:${isSelected ? color + '15' : 'rgba(15,23,42,0.5)'};border:1.5px solid ${isSelected ? color : 'rgba(255,255,255,0.08)'};border-radius:10px;padding:10px 12px;cursor:pointer;transition:all 0.2s;`;
+    card.onmouseover = () => { if (!isSelected) card.style.borderColor = color + '80'; };
+    card.onmouseout = () => { if (_selectedAtlasModel !== m.id) card.style.borderColor = 'rgba(255,255,255,0.08)'; };
+    card.onclick = () => selectAtlasModel(m.id);
+    card.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+        <span style="font-size:0.8rem;font-weight:700;color:#f1f5f9;">${m.label}</span>
+        <span style="font-size:0.7rem;font-weight:700;color:${color};">$${m.cost_per_sec}/s</span>
+      </div>
+      <div style="font-size:0.68rem;color:#64748b;line-height:1.4;">${m.description}</div>
+      <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px;">
+        ${m.supports_negative_prompt ? '<span style="font-size:0.6rem;background:rgba(99,102,241,0.15);color:#818cf8;padding:1px 6px;border-radius:99px;">neg prompt</span>' : ''}
+        ${m.supports_audio ? '<span style="font-size:0.6rem;background:rgba(167,139,250,0.15);color:#a78bfa;padding:1px 6px;border-radius:99px;">audio</span>' : ''}
+        ${m.resolution_options ? '<span style="font-size:0.6rem;background:rgba(45,212,191,0.15);color:#2dd4bf;padding:1px 6px;border-radius:99px;">' + m.resolution_options.join('/') + '</span>' : ''}
+      </div>
+    `;
+    container.appendChild(card);
+  });
+}
+
+function selectAtlasModel(modelId) {
+  const model = _atlascloudModels.find(m => m.id === modelId);
+  if (!model) return;
+  _selectedAtlasModel = modelId;
+
+  // Re-render cards to update selection
+  renderAtlasModelCards();
+
+  // Populate duration dropdown
+  const durSel = document.getElementById('modal-video-duration');
+  if (durSel) {
+    durSel.innerHTML = '';
+    model.duration_options.forEach(d => {
+      const opt = document.createElement('option');
+      opt.value = d; opt.textContent = `${d} seconds`;
+      if (d === model.duration_default) opt.selected = true;
+      durSel.appendChild(opt);
+    });
   }
-  updateVideoModelInfo();
+
+  // Populate aspect/size dropdown
+  const aspSel = document.getElementById('modal-video-aspect');
+  if (aspSel) {
+    aspSel.innerHTML = '';
+    Object.entries(model.aspect_options).forEach(([val, label]) => {
+      const opt = document.createElement('option');
+      opt.value = val; opt.textContent = `${val} — ${label}`;
+      aspSel.appendChild(opt);
+    });
+  }
+
+  // Resolution dropdown (Veo models)
+  const resWrap = document.getElementById('modal-video-resolution-wrap');
+  const resSel = document.getElementById('modal-video-resolution');
+  if (resWrap && resSel) {
+    if (model.resolution_options) {
+      resWrap.style.display = '';
+      resSel.innerHTML = '';
+      model.resolution_options.forEach(r => {
+        const opt = document.createElement('option');
+        opt.value = r; opt.textContent = r;
+        if (r === model.resolution_default) opt.selected = true;
+        resSel.appendChild(opt);
+      });
+    } else {
+      resWrap.style.display = 'none';
+    }
+  }
+
+  // Audio checkbox (Veo 3.1 full)
+  const audioWrap = document.getElementById('modal-video-audio-wrap');
+  if (audioWrap) audioWrap.style.display = model.supports_audio ? '' : 'none';
+
+  // Negative prompt field visibility
+  const negWrap = document.getElementById('modal-negative-prompt-wrap');
+  if (negWrap) negWrap.style.display = model.supports_negative_prompt ? '' : 'none';
+
+  // Show params section
+  const params = document.getElementById('modal-video-params');
+  if (params) params.style.display = '';
+
+  // Model info
+  const info = document.getElementById('modal-video-model-info');
+  if (info) {
+    info.innerHTML = `<span style="width:6px;height:6px;border-radius:50%;background:#38bdf8;display:inline-block;"></span> ${model.label} — $${model.cost_per_sec}/sec via Atlas Cloud API`;
+  }
+
+  // Auto-generate tailored prompts
+  if (modalItemId) {
+    document.getElementById('modal-video-suggestions').style.display = 'none';
+    suggestVideoPrompts();
+  }
 }
 
 async function suggestVideoPrompts() {
   if (!modalItemId) return;
   const btn = document.getElementById('modal-video-suggest-btn');
-  btn.textContent = '⏳ Generating...';
-  btn.disabled = true;
+  const loading = document.getElementById('modal-video-prompt-loading');
+  const modelLabel = document.getElementById('modal-prompt-loading-model');
+  const model = _atlascloudModels.find(m => m.id === _selectedAtlasModel);
+
+  if (btn) { btn.style.display = 'none'; }
+  if (loading) { loading.style.display = ''; }
+  if (modelLabel && model) modelLabel.textContent = model.label;
+
   try {
-    const data = await api('/api/video/suggest-prompts', 'POST', { content_id: modalItemId });
+    const data = await api('/api/video/suggest-prompts', 'POST', {
+      content_id: modalItemId,
+      model_id: _selectedAtlasModel || '',
+    });
     const prompts = data.prompts || [];
     const container = document.getElementById('modal-video-prompt-cards');
     container.innerHTML = '';
@@ -1327,18 +1433,18 @@ async function suggestVideoPrompts() {
           <span style="background:${borderColor};color:#fff;font-size:0.68rem;font-weight:700;padding:2px 8px;border-radius:99px;">${p.style}</span>
           <span style="font-size:0.68rem;color:#64748b;">${p.suggested_length || 8}s · ${p.suggested_aspect_ratio || '9:16'}</span>
         </div>
-        <div style="font-size:0.78rem;color:#cbd5e1;line-height:1.5;">${p.prompt}</div>
+        <div style="font-size:0.78rem;color:#cbd5e1;line-height:1.5;">${p.prompt.substring(0, 200)}${p.prompt.length > 200 ? '…' : ''}</div>
       `;
       container.appendChild(card);
     });
 
     document.getElementById('modal-video-suggestions').style.display = '';
-    showToast('3 video prompts generated — click one to use it', 'success');
+    showToast('3 tailored prompts generated — click one to use it', 'success');
   } catch (err) {
     showToast(err.message, 'error');
   } finally {
-    btn.textContent = '🔄 Regenerate Prompts';
-    btn.disabled = false;
+    if (loading) loading.style.display = 'none';
+    if (btn) { btn.textContent = '🔄 Regenerate Prompts'; btn.style.display = ''; btn.disabled = false; }
   }
 }
 
@@ -1346,8 +1452,8 @@ async function generateVideo() {
   if (!modalItemId) return;
   const prompt = document.getElementById('modal-video-prompt')?.value?.trim();
   if (!prompt) { showToast('Write or select a video prompt first', 'error'); return; }
+  if (!_selectedAtlasModel) { showToast('Select a video model first', 'error'); return; }
 
-  const provider = document.getElementById('modal-video-provider')?.value || 'veo3_free';
   const aspectRatio = document.getElementById('modal-video-aspect')?.value || '9:16';
   const duration = parseInt(document.getElementById('modal-video-duration')?.value || '8');
 
@@ -1362,14 +1468,20 @@ async function generateVideo() {
   try {
     const appendCta = document.getElementById('modal-video-append-cta')?.checked ?? true;
     const negativePrompt = document.getElementById('modal-video-negative-prompt')?.value?.trim() || '';
+    const resolution = document.getElementById('modal-video-resolution')?.value || '';
+    const generateAudio = document.getElementById('modal-video-gen-audio')?.checked || false;
+
     const data = await api('/api/video/generate', 'POST', {
       content_id: modalItemId,
       prompt,
-      provider,
+      provider: 'atlascloud_video',
+      model_id: _selectedAtlasModel,
       aspect_ratio: aspectRatio,
       duration,
       append_cta: appendCta,
       negative_prompt: negativePrompt,
+      resolution,
+      generate_audio: generateAudio,
     });
 
     if (data.video_base64) {
