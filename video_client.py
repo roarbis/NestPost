@@ -128,47 +128,98 @@ async def generate_video_prompts(
     Returns list of {style, prompt, suggested_length, suggested_aspect_ratio}."""
 
     system = (
-        "You are an expert video director and AI video prompt engineer. "
-        "Given a social media post caption and context, create THREE distinct video "
-        "generation prompts optimised for AI video models (Veo, Kling, Runway).\n\n"
-        "Each prompt should describe a 5-15 second video clip.\n\n"
-        "THE THREE STYLES:\n"
-        "1. **Cinematic** — dramatic lighting, slow camera movements, film-grade color grading, "
-        "shallow depth of field, anamorphic lens feel\n"
-        "2. **Dynamic** — fast cuts, energetic motion, bold transitions, punchy rhythm, "
-        "action-oriented camera work (dolly, tracking, reveal shots)\n"
-        "3. **Minimal** — clean, simple, elegant. Static or gentle motion, lots of negative "
-        "space, soft lighting, zen-like calm, focus on one subject\n\n"
-        "PROMPT RULES:\n"
-        "- Describe the visual scene vividly: setting, objects, lighting, camera movement, mood\n"
-        "- Specify camera angle and motion (e.g., 'slow dolly forward', 'aerial descending shot')\n"
-        "- Include lighting and color palette details\n"
-        "- Reference smart home / technology context when relevant\n"
-        "- Each prompt should be 50-100 words\n"
-        "- Do NOT include text overlays, logos, or UI elements in the video description\n"
-        "- Do NOT mention brand names\n"
-        "- Avoid depicting recognisable faces\n\n"
-        "Also suggest the ideal video length (5, 8, 10, or 15 seconds) and aspect ratio "
-        "(9:16 for Reels/Stories, 16:9 for LinkedIn/YouTube, 1:1 for feed posts) "
-        "based on the target platform.\n\n"
-        "Return ONLY valid JSON array with exactly 3 objects:\n"
-        '[\n  {"style": "Cinematic", "prompt": "...", "suggested_length": 8, "suggested_aspect_ratio": "9:16"},\n'
-        '  {"style": "Dynamic", "prompt": "...", "suggested_length": 8, "suggested_aspect_ratio": "9:16"},\n'
-        '  {"style": "Minimal", "prompt": "...", "suggested_length": 8, "suggested_aspect_ratio": "9:16"}\n]'
+        "You are a senior video director and AI video prompt engineer specialising in smart home "
+        "and PropTech content for Australian social media (Instagram Reels, TikTok, LinkedIn).\n\n"
+        "Given a social media post, generate THREE distinct cinematography briefs optimised for "
+        "any AI video model. Each brief must be detailed enough that the AI model can "
+        "produce a publish-ready Reel with no ambiguity.\n\n"
+
+        "═══ SMART HOME TECHNICAL VOCABULARY ═══\n"
+        "Use these terms naturally where relevant to the post:\n"
+        "Devices/hardware: smart hub, automation panel, touchscreen keypad, motion sensor, "
+        "door/window sensor, smart lock, video doorbell, IP camera, NVR, PoE switch, "
+        "smart thermostat, HVAC controller, smart blinds/shutters, smart meter, solar inverter, "
+        "EV charger, smart garage controller, intercom panel, in-wall tablet, smart lighting "
+        "(downlights, strip LEDs, RGB, RGBW, tunable white), occupancy sensor, presence sensor, "
+        "zigbee/z-wave/matter device, smart speaker, mesh WiFi node, patch panel.\n"
+        "Experiences/actions: scene activation, automation trigger, geofencing arrival/departure, "
+        "voice command response, app notification, energy dashboard, live camera feed, "
+        "two-way intercom, remote access, scheduled automation, presence detection, "
+        "multi-room audio, goodnight routine, morning wake scene, away mode, "
+        "integration handshake (e.g. 'the thermostat and blinds synchronising at sunset').\n\n"
+
+        "═══ THE THREE STYLES ═══\n"
+        "1. CINEMATIC — aspirational, premium feel. Shallow depth of field, anamorphic lens "
+        "compression, film-grade colour grade (teal-orange or warm desaturated), slow deliberate "
+        "camera movement, architectural framing. Mood: calm luxury. Pacing: slow burn.\n\n"
+        "2. DYNAMIC — energetic, scroll-stopping. Fast editorial cuts (every 1.5–2s), "
+        "whip pans, snap zooms, Dutch angles for drama, tracking shots following hand gestures "
+        "or device activations. Mood: exciting, modern, tech-forward. Pacing: punchy rhythm.\n\n"
+        "3. MINIMAL — clean, zen, product-hero. Near-static camera or imperceptibly slow push, "
+        "enormous negative space, single hero device or UI element in sharp focus, "
+        "everything else softly blurred. Mood: simplicity, confidence. Pacing: meditative.\n\n"
+
+        "═══ REQUIRED FIELDS PER BRIEF ═══\n"
+        "Write each brief as a single flowing paragraph (150–220 words) covering ALL of:\n"
+        "• OPENING FRAME: exact first shot — what the viewer sees in frame 1\n"
+        "• CAMERA: movement type (dolly in/out, pan L/R, tilt up/down, tracking, crane, "
+        "handheld drift, locked off, aerial descent, rack focus), speed (imperceptible / slow / "
+        "medium / fast), and any transitions (cut / match cut / whip pan / dissolve / J-cut)\n"
+        "• SHOT SEQUENCE: 3–5 distinct shots with rough timestamp (e.g. 0–2s, 2–5s, 5–8s) "
+        "describing exactly what is visible and moving in each\n"
+        "• LIGHTING: natural vs artificial, direction (backlit / side-lit / front-lit / "
+        "motivated practical), quality (hard / soft / diffused / golden hour / blue hour / "
+        "cool office / warm residential), any practical light sources visible (LED strip, "
+        "downlight glow, screen glow, daylight through window)\n"
+        "• COLOUR GRADE: specific grade description (e.g. lifted blacks with warm highlights, "
+        "cool desaturated with teal shadows, high-contrast monochrome, naturalistic with "
+        "slightly boosted greens, warm cinematic with crushed blacks)\n"
+        "• MOOD & ATMOSPHERE: one sentence on the emotional tone\n"
+        "• TECHNICAL DETAIL: any smart home devices, UI elements, or tech actions visible "
+        "(use vocabulary above — be specific, e.g. 'a Lutron Caseta keypad dims the "
+        "kitchen downlights from 100% to 30%' not just 'smart lighting')\n\n"
+
+        "═══ NEGATIVE PROMPT ═══\n"
+        "For EACH brief, also write a negative_prompt (40–60 words) listing what to EXCLUDE. "
+        "Always include: shaky handheld camera, motion blur, watermark, subtitles, text overlay, "
+        "stock footage watermark, jump cut jitter, overexposed highlights, blown-out windows, "
+        "distorted hands, uncanny faces, low resolution, compression artefacts, flickering. "
+        "Add style-specific exclusions (e.g. for Minimal: busy backgrounds, multiple subjects, "
+        "fast cuts; for Dynamic: static locked-off shots, slow dissolves).\n\n"
+
+        "═══ OUTPUT RULES ═══\n"
+        "- Do NOT include brand names, logos, recognisable faces, or text overlays in prompts\n"
+        "- Prompts are for AI video generation — describe only what the camera sees\n"
+        "- Use present tense, active voice ('the camera pushes in', not 'camera pushed')\n"
+        "- Suggest aspect ratio based on platform: 9:16 Instagram/TikTok, 16:9 LinkedIn, 1:1 feed\n"
+        "- Suggest length: 5s (punchy hook), 8s (standard Reel), 10–15s (story/explainer)\n\n"
+
+        "Return ONLY valid JSON — no markdown fences, no commentary:\n"
+        "[\n"
+        "  {\n"
+        '    "style": "Cinematic",\n'
+        '    "prompt": "150-220 word cinematography brief...",\n'
+        '    "negative_prompt": "40-60 word exclusion list...",\n'
+        '    "suggested_length": 8,\n'
+        '    "suggested_aspect_ratio": "9:16"\n'
+        "  },\n"
+        "  { same structure for Dynamic },\n"
+        "  { same structure for Minimal }\n"
+        "]"
     )
 
     user_prompt = (
         f"Platform: {platform}\n"
-        f"Caption: {caption[:500]}\n"
-        f"Visual suggestion: {image_suggestion or 'N/A'}\n"
-        f"Hook: {hook or 'N/A'}\n\n"
-        f"Generate the three video prompts:"
+        f"Post caption: {caption[:800]}\n"
+        f"Visual suggestion from post: {image_suggestion or 'N/A'}\n"
+        f"Post hook line: {hook or 'N/A'}\n\n"
+        "Write three detailed cinematography briefs for this post:"
     )
 
     url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
     payload = {
         "contents": [{"parts": [{"text": f"{system}\n\n{user_prompt}"}]}],
-        "generationConfig": {"temperature": 0.8, "maxOutputTokens": 2048},
+        "generationConfig": {"temperature": 0.85, "maxOutputTokens": 4096},
     }
 
     async with httpx.AsyncClient(timeout=30.0) as client:
@@ -347,6 +398,7 @@ async def generate_video_kling(
     aspect_ratio: str = "9:16",
     duration: int = 5,
     mode: str = "std",
+    negative_prompt: str = "",
 ) -> dict:
     """Generate video using Kling AI API.
     mode: 'std' for standard (free-tier OK), 'pro' for higher quality.
@@ -370,6 +422,8 @@ async def generate_video_kling(
         "duration": kling_duration,
         "mode": mode,
     }
+    if negative_prompt:
+        payload["negative_prompt"] = negative_prompt
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(url, json=payload, headers=headers)
@@ -727,6 +781,7 @@ async def generate_video(
     api_keys: dict,
     aspect_ratio: str = "9:16",
     duration: int = 8,
+    negative_prompt: str = "",
 ) -> dict:
     """Route video generation to the appropriate provider.
     Returns {status, video_base64, mime_type} or {status, error}."""
@@ -743,7 +798,7 @@ async def generate_video(
         if not access_key or not secret_key:
             raise ValueError("Kling Access Key and Secret Key are both required")
         mode = "pro" if provider == "kling_pro" else "std"
-        return await generate_video_kling(prompt, access_key, secret_key, aspect_ratio, duration, mode)
+        return await generate_video_kling(prompt, access_key, secret_key, aspect_ratio, duration, mode, negative_prompt)
 
     elif provider == "runway":
         key = api_keys.get("runway", "")
@@ -768,7 +823,7 @@ async def generate_video(
         model = api_keys.get("atlascloud_video_model", "kwaivgi/kling-v3.0-pro/text-to-video")
         if not key:
             raise ValueError("Atlas Cloud API key required — add it in Settings")
-        return await generate_video_atlascloud(prompt, key, model, aspect_ratio, duration)
+        return await generate_video_atlascloud(prompt, key, model, aspect_ratio, duration, negative_prompt)
 
     else:
         raise ValueError(f"Unknown video provider: {provider}")
@@ -780,6 +835,7 @@ async def generate_video_atlascloud(
     model: str = "kwaivgi/kling-v3.0-pro/text-to-video",
     aspect_ratio: str = "9:16",
     duration: int = 5,
+    negative_prompt: str = "",
 ) -> dict:
     """Generate video via Atlas Cloud aggregator API (queue-based).
     Docs: https://www.atlascloud.ai/docs/models/video
@@ -794,6 +850,8 @@ async def generate_video_atlascloud(
         "aspect_ratio": aspect_ratio,
         "duration": str(duration),
     }
+    if negative_prompt:
+        payload["negative_prompt"] = negative_prompt
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(
@@ -815,16 +873,17 @@ async def generate_video_atlascloud(
     return await _poll_atlascloud(prediction_id, api_key)
 
 
-async def _poll_atlascloud(prediction_id: str, api_key: str, max_wait: int = 300) -> dict:
-    """Poll Atlas Cloud prediction endpoint every 5 seconds until complete."""
+async def _poll_atlascloud(prediction_id: str, api_key: str, max_wait: int = 600) -> dict:
+    """Poll Atlas Cloud prediction endpoint every 10 seconds until complete.
+    Kling 3.0 Pro can take 8-10 minutes — max_wait set to 600s."""
     url = f"https://api.atlascloud.ai/api/v1/model/prediction/{prediction_id}"
     headers = {"Authorization": f"Bearer {api_key}"}
     elapsed = 0
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         while elapsed < max_wait:
-            await asyncio.sleep(5)
-            elapsed += 5
+            await asyncio.sleep(10)
+            elapsed += 10
             try:
                 resp = await client.get(url, headers=headers)
                 resp.raise_for_status()
@@ -873,7 +932,66 @@ async def _poll_atlascloud(prediction_id: str, api_key: str, max_wait: int = 300
                 msg = data.get("data", {}).get("error") or data.get("error") or "Unknown error"
                 return {"status": "error", "error": f"Atlas Cloud generation failed: {msg}"}
 
-    return {"status": "error", "error": f"Atlas Cloud: timed out after {max_wait}s"}
+    return {"status": "error", "error": f"Atlas Cloud: timed out after {max_wait}s — try a lighter model or shorter duration"}
+
+
+# ── CTA Video Concat ─────────────────────────────────────────────────────────
+
+def concat_cta_video(main_b64: str, cta_b64: str, mime_type: str = "video/mp4") -> str:
+    """Concatenate main video + CTA clip using FFmpeg.
+    Both inputs are base64-encoded. Returns base64-encoded merged mp4."""
+    import base64
+    import subprocess
+    import tempfile
+    import os
+
+    ext = "mp4"
+    with tempfile.TemporaryDirectory() as tmp:
+        main_path = os.path.join(tmp, f"main.{ext}")
+        cta_path  = os.path.join(tmp, f"cta.{ext}")
+        out_path  = os.path.join(tmp, f"out.{ext}")
+        list_path = os.path.join(tmp, "concat.txt")
+
+        with open(main_path, "wb") as f:
+            f.write(base64.b64decode(main_b64))
+        with open(cta_path, "wb") as f:
+            f.write(base64.b64decode(cta_b64))
+
+        # FFmpeg concat demuxer — lossless, no re-encode needed when codecs match
+        with open(list_path, "w") as f:
+            f.write(f"file '{main_path}'\nfile '{cta_path}'\n")
+
+        result = subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-f", "concat", "-safe", "0",
+                "-i", list_path,
+                "-c", "copy",
+                out_path,
+            ],
+            capture_output=True,
+            timeout=120,
+        )
+
+        if result.returncode != 0:
+            # If codec copy fails (different codecs/resolutions), re-encode
+            result = subprocess.run(
+                [
+                    "ffmpeg", "-y",
+                    "-f", "concat", "-safe", "0",
+                    "-i", list_path,
+                    "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                    "-c:a", "aac",
+                    out_path,
+                ],
+                capture_output=True,
+                timeout=180,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(f"FFmpeg concat failed: {result.stderr.decode()[:300]}")
+
+        with open(out_path, "rb") as f:
+            return base64.b64encode(f.read()).decode()
 
 
 # ── Cloudflare R2 Storage ─────────────────────────────────────────────────────
@@ -899,6 +1017,7 @@ def upload_video_to_r2(
     secret_access_key: str,
     bucket_name: str,
     public_url: str,
+    filename_override: str = "",
 ) -> str:
     """Upload a base64-encoded video to Cloudflare R2.
     Returns the public URL of the uploaded video."""
@@ -907,7 +1026,7 @@ def upload_video_to_r2(
 
     video_bytes = base64.b64decode(video_base64)
     ext = "mp4" if "mp4" in mime_type else "webm"
-    key = f"videos/{content_id}/{uuid.uuid4().hex}.{ext}"
+    key = f"assets/{filename_override}" if filename_override else f"videos/{content_id}/{uuid.uuid4().hex}.{ext}"
 
     client = _get_r2_client(account_id, access_key_id, secret_access_key)
     client.put_object(

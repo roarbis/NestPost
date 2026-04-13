@@ -35,6 +35,7 @@ from video_client import (
     generate_video, generate_video_prompts, search_stock_footage,
     VIDEO_PROVIDERS, VIDEO_ASPECT_RATIOS,
     upload_video_to_r2, delete_video_from_r2, is_r2_configured,
+    concat_cta_video,
 )
 from contextlib import asynccontextmanager
 from starlette.middleware.gzip import GZipMiddleware
@@ -1160,6 +1161,8 @@ class GenerateVideoRequest(BaseModel):
     aspect_ratio: str = "9:16"
     duration: int = 8
     use_paid: bool = False
+    append_cta: bool = True
+    negative_prompt: str = ""
     idempotency_key: Optional[str] = None
 
 
@@ -1197,6 +1200,7 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
             api_keys=api_keys,
             aspect_ratio=req.aspect_ratio,
             duration=req.duration,
+            negative_prompt=req.negative_prompt,
         )
 
         if result.get("status") == "rate_limited":
@@ -1205,10 +1209,35 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
         if result.get("status") != "complete":
             raise HTTPException(status_code=500, detail=result.get("error", "Video generation failed"))
 
+        video_b64 = result["video_base64"]
+        mime_type = result.get("mime_type", "video/mp4")
+
+        # Append CTA clip if configured and requested
+        cta_url = get_setting("cta_video_url", "") if req.append_cta else ""
+        cta_b64 = get_setting("cta_video_b64", "") if req.append_cta else ""
+        if cta_url and not cta_b64:
+            # Fetch CTA from R2
+            try:
+                import httpx as _httpx
+                async with _httpx.AsyncClient(timeout=30.0) as _cl:
+                    _r = await _cl.get(cta_url)
+                    _r.raise_for_status()
+                    import base64 as _b64
+                    cta_b64 = _b64.b64encode(_r.content).decode()
+            except Exception as e:
+                print(f"[CTA fetch failed, skipping concat] {e}")
+                cta_b64 = ""
+
+        if cta_b64:
+            try:
+                video_b64 = concat_cta_video(video_b64, cta_b64, mime_type)
+            except Exception as e:
+                print(f"[CTA concat failed, returning raw video] {e}")
+
         video_result = {
             "status": "complete",
-            "video_base64": result["video_base64"],
-            "mime_type": result.get("mime_type", "video/mp4"),
+            "video_base64": video_b64,
+            "mime_type": mime_type,
             "provider": req.provider,
             "prompt": req.prompt,
         }
@@ -1311,6 +1340,55 @@ async def delete_video(item_id: int):
     )
     conn.commit()
     conn.close()
+    return {"deleted": True}
+
+
+class CtaUploadRequest(BaseModel):
+    video_base64: str
+    mime_type: str = "video/mp4"
+
+
+@app.post("/api/video/cta/upload")
+async def upload_cta_video(req: CtaUploadRequest):
+    """Upload a CTA video clip to be appended to every generated video.
+    Stored in R2 if configured, otherwise as base64 in settings."""
+    import base64 as _b64
+    r2_config = _get_r2_config()
+    if is_r2_configured(r2_config):
+        url = upload_video_to_r2(
+            video_base64=req.video_base64,
+            content_id=0,  # 0 = CTA asset, not a content row
+            mime_type=req.mime_type,
+            account_id=r2_config["account_id"],
+            access_key_id=r2_config["access_key_id"],
+            secret_access_key=r2_config["secret_access_key"],
+            bucket_name=r2_config["bucket_name"],
+            public_url=r2_config["public_url"],
+            filename_override="cta_video.mp4",
+        )
+        set_setting("cta_video_url", url)
+        set_setting("cta_video_b64", "")  # clear any local fallback
+        return {"saved": True, "storage": "r2", "url": url}
+    else:
+        # Store as base64 in settings (small clips only)
+        set_setting("cta_video_b64", req.video_base64)
+        set_setting("cta_video_url", "")
+        return {"saved": True, "storage": "local"}
+
+
+@app.get("/api/video/cta/status")
+async def cta_status():
+    """Check whether a CTA video is configured."""
+    url = get_setting("cta_video_url", "")
+    has_local = bool(get_setting("cta_video_b64", ""))
+    return {"configured": bool(url or has_local), "url": url, "storage": "r2" if url else ("local" if has_local else None)}
+
+
+@app.delete("/api/video/cta")
+async def delete_cta_video():
+    """Remove the configured CTA video."""
+    set_setting("cta_video_url", "")
+    set_setting("cta_video_b64", "")
     return {"deleted": True}
 
 

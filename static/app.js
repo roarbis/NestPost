@@ -39,7 +39,7 @@ initTheme();
 document.addEventListener('DOMContentLoaded', async () => {
   showPage('generate');
   setGreeting();
-  await Promise.all([loadHealth(), loadStats(), loadSuggestions(), loadModels(), loadSettings(), loadCurrentUser(), loadBrandLogo(), loadR2Status()]);
+  await Promise.all([loadHealth(), loadStats(), loadSuggestions(), loadModels(), loadSettings(), loadCurrentUser(), loadBrandLogo(), loadR2Status(), loadCtaStatus()]);
   loadRecentContent();
 });
 
@@ -618,11 +618,20 @@ async function openModal(id) {
     } else {
       savedVideoSection.style.display = 'none';
     }
-    // Always show video section so users can generate video from any post
+    // Show/hide image vs video sections based on content_type or existing video data
+    const isVideoPost = (item.content_type || '').toLowerCase().includes('video') ||
+                        !!(item.video_path || item.video_prompt);
+    const modalImageSection = document.getElementById('modal-image-section');
+    const modalImageSuggestion = document.getElementById('modal-image-suggestion-section');
     const modalVideoSection = document.getElementById('modal-video-section');
-    if (modalVideoSection) modalVideoSection.style.display = '';
+    if (modalImageSection) modalImageSection.style.display = isVideoPost ? 'none' : '';
+    if (modalImageSuggestion) modalImageSuggestion.style.display = isVideoPost ? 'none' : '';
+    if (modalVideoSection) modalVideoSection.style.display = isVideoPost ? '' : 'none';
     window._generatedVideoB64 = null;
     window._generatedVideoMime = null;
+
+    // Auto-generate video prompts on modal open for video posts
+    if (isVideoPost && !item.video_prompt) suggestVideoPrompts();
 
     const approveBtn = document.getElementById('modal-approve-btn');
     approveBtn.innerHTML = item.status === 'approved' ? '<svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg> Approved' : '<svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg> Approve';
@@ -858,6 +867,64 @@ async function triggerVideoCleanup() {
     const data = await api('/api/video/cleanup', 'POST');
     showToast(`Cleanup complete — ${data.deleted} video(s) deleted`, data.deleted > 0 ? 'success' : 'success');
     loadR2Status();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+// ── CTA Video ─────────────────────────────────────────────────────────────────
+
+async function loadCtaStatus() {
+  try {
+    const data = await api('/api/video/cta/status');
+    const dot = document.getElementById('cta-status-dot');
+    const text = document.getElementById('cta-status-text');
+    const delBtn = document.getElementById('cta-delete-btn');
+    if (!dot || !text) return;
+    const ctaWrap = document.getElementById('modal-cta-wrap');
+    if (data.configured) {
+      dot.style.background = '#a78bfa';
+      text.textContent = data.storage === 'r2' ? 'CTA clip uploaded (R2)' : 'CTA clip uploaded (local)';
+      text.style.color = '#a78bfa';
+      if (delBtn) delBtn.style.display = '';
+      if (ctaWrap) ctaWrap.style.display = 'flex';
+    } else {
+      dot.style.background = '#475569';
+      text.textContent = 'No CTA clip uploaded';
+      text.style.color = '#94a3b8';
+      if (delBtn) delBtn.style.display = 'none';
+      if (ctaWrap) ctaWrap.style.display = 'none';
+    }
+  } catch { /* silent */ }
+}
+
+async function uploadCtaVideo(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const text = document.getElementById('cta-status-text');
+  if (text) { text.textContent = 'Uploading...'; text.style.color = '#94a3b8'; }
+  try {
+    const b64 = await new Promise((res, rej) => {
+      const reader = new FileReader();
+      reader.onload = e => res(e.target.result.split(',')[1]);
+      reader.onerror = rej;
+      reader.readAsDataURL(file);
+    });
+    await api('/api/video/cta/upload', 'POST', { video_base64: b64, mime_type: file.type || 'video/mp4' });
+    showToast('CTA clip uploaded — will be appended to future videos', 'success');
+    loadCtaStatus();
+  } catch (err) {
+    showToast('CTA upload failed: ' + err.message, 'error');
+    loadCtaStatus();
+  }
+  input.value = '';
+}
+
+async function deleteCtaVideo() {
+  try {
+    await api('/api/video/cta', 'DELETE');
+    showToast('CTA clip removed', 'success');
+    loadCtaStatus();
   } catch (err) {
     showToast(err.message, 'error');
   }
@@ -1246,6 +1313,8 @@ async function suggestVideoPrompts() {
       card.onmouseout = () => { card.style.borderColor = borderColor + '40'; card.style.background = 'rgba(15,23,42,0.6)'; };
       card.onclick = () => {
         document.getElementById('modal-video-prompt').value = p.prompt;
+        const negEl = document.getElementById('modal-video-negative-prompt');
+        if (negEl && p.negative_prompt) negEl.value = p.negative_prompt;
         const aspectSelect = document.getElementById('modal-video-aspect');
         if (aspectSelect && p.suggested_aspect_ratio) aspectSelect.value = p.suggested_aspect_ratio;
         const durSelect = document.getElementById('modal-video-duration');
@@ -1268,7 +1337,7 @@ async function suggestVideoPrompts() {
   } catch (err) {
     showToast(err.message, 'error');
   } finally {
-    btn.textContent = '🎬 Suggest Prompts';
+    btn.textContent = '🔄 Regenerate Prompts';
     btn.disabled = false;
   }
 }
@@ -1291,12 +1360,16 @@ async function generateVideo() {
   result.style.display = 'none';
 
   try {
+    const appendCta = document.getElementById('modal-video-append-cta')?.checked ?? true;
+    const negativePrompt = document.getElementById('modal-video-negative-prompt')?.value?.trim() || '';
     const data = await api('/api/video/generate', 'POST', {
       content_id: modalItemId,
       prompt,
       provider,
       aspect_ratio: aspectRatio,
       duration,
+      append_cta: appendCta,
+      negative_prompt: negativePrompt,
     });
 
     if (data.video_base64) {
@@ -1767,6 +1840,7 @@ async function wizardGenerate() {
     body.topic_id = wizardState.selectedTopicId;
   }
   if (customTopic) body.custom_topic = customTopic;
+  if (wizardState.intent === 'video') body.content_type = 'Video Post';
 
   // Show loading, hide wizard
   document.getElementById('wizard-card').style.display = 'none';

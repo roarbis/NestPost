@@ -283,6 +283,7 @@ CONTENT_TYPES = [
     "Promotional Offer",
     "Behind the Scenes",
     "FAQ Answer",
+    "Video Post",
 ]
 
 TONES = [
