@@ -1423,8 +1423,8 @@ function selectAtlasModel(modelId) {
   const resWrap = document.getElementById('modal-video-resolution-wrap');
   const resSel = document.getElementById('modal-video-resolution');
   if (resWrap && resSel) {
-    if (model.resolution_options) {
-      resWrap.style.display = '';
+    if (model.resolution_options && model.resolution_options.length) {
+      resWrap.style.display = 'block';
       resSel.innerHTML = '';
       model.resolution_options.forEach(r => {
         const opt = document.createElement('option');
