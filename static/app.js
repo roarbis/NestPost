@@ -95,21 +95,24 @@ function _buildWizardVideoProviderCards(videoData) {
   // Maps sidebar status key → actual provider ID used by video_client.py
   const providerIdMap = { veo3: 'veo3_free', kling: 'kling_free', runway: 'runway', luma: 'luma', fal: 'fal_wan', atlascloud_video: 'atlascloud_video' };
   const providerMeta = {
-    veo3:             { label: 'Veo 3.1',           icon: '🎬', note: 'Google — Paid only' },
+    atlascloud_video: { label: 'Atlas Cloud Models', icon: '☁️', note: 'Sora 2, Veo 3.1, Kling 3.0 Pro' },
     kling:            { label: 'Kling AI',          icon: '🎞️', note: 'Standard credits' },
     fal:              { label: 'WAN 2.1 (fal)',     icon: '⚡', note: 'Free credits included' },
+    veo3:             { label: 'Veo 3.1',           icon: '🎬', note: 'Google — Paid only' },
     runway:           { label: 'Runway Gen-4',      icon: '🚀', note: 'Paid' },
     luma:             { label: 'Luma Dream',        icon: '✨', note: 'Paid' },
-    atlascloud_video: { label: 'Atlas Cloud Video', icon: '☁️', note: 'Kling 3.0 Pro & more' },
   };
 
-  // Preferred auto-select order: Atlas Cloud > Kling > fal > paid providers
-  const preferredOrder = ['atlascloud_video', 'kling', 'fal', 'runway', 'luma', 'veo3'];
+  // Display + auto-select order: Atlas Cloud first, then the rest
+  const displayOrder = ['atlascloud_video', 'kling', 'fal', 'veo3', 'runway', 'luma'];
   const enabledKeys = new Set();
   const cards = {};
 
-  Object.entries(videoData).forEach(([key, info]) => {
-    const providerId = providerIdMap[key] || key;   // e.g. 'kling' → 'kling_free'
+  // Iterate in displayOrder so the wizard cards render in the preferred order
+  displayOrder.forEach(key => {
+    const info = videoData[key];
+    if (!info) return; // skip if backend didn't return this provider
+    const providerId = providerIdMap[key] || key;
     const meta  = providerMeta[key] || { label: key, icon: '🎥', note: '' };
     const ready = info.online;
     const isPaid = info.paid === true;
@@ -141,15 +144,17 @@ function _buildWizardVideoProviderCards(videoData) {
   });
 
   // Auto-select preferred available provider (Atlas Cloud > Kling > fal > paid providers)
-  const autoKey = preferredOrder.find(k => enabledKeys.has(k));
+  const autoKey = displayOrder.find(k => enabledKeys.has(k));
   if (autoKey) {
     wizardState.videoProvider = providerIdMap[autoKey] || autoKey;
     const autoCard = cards[autoKey];
     if (autoCard) { autoCard.style.borderColor = '#6366f1'; autoCard.style.background = 'rgba(99,102,241,0.15)'; }
-    // If atlas cloud auto-selected, show model sub-picker (models may not be loaded yet — renderWizardAtlasModelCards is also called in loadAtlasCloudModels)
+    // If atlas cloud auto-selected, show model sub-picker and render cards now (may already have models loaded)
     if (autoKey === 'atlascloud_video') {
       const acRow = document.getElementById('wizard-atlascloud-model-row');
       if (acRow) acRow.style.display = '';
+      // Render now; if models not loaded yet, loadAtlasCloudModels will re-render on completion
+      renderWizardAtlasModelCards();
     }
   }
 }
@@ -1446,18 +1451,27 @@ async function suggestVideoPrompts() {
         const negEl = document.getElementById('modal-video-negative-prompt');
         if (negEl && p.negative_prompt) negEl.value = p.negative_prompt;
         const aspectSelect = document.getElementById('modal-video-aspect');
-        if (aspectSelect && p.suggested_aspect_ratio) aspectSelect.value = p.suggested_aspect_ratio;
+        // Only apply the suggested aspect if it's actually one of the model's valid options
+        // (e.g. Sora uses "720x1280" not "9:16" — don't let an invalid suggestion corrupt the select)
+        if (aspectSelect && p.suggested_aspect_ratio) {
+          const validOpts = Array.from(aspectSelect.options).map(o => o.value);
+          if (validOpts.includes(p.suggested_aspect_ratio)) {
+            aspectSelect.value = p.suggested_aspect_ratio;
+          }
+        }
         const durSelect = document.getElementById('modal-video-duration');
         if (durSelect && p.suggested_length) durSelect.value = String(p.suggested_length);
         showToast(`${p.style} prompt loaded — edit if needed, then generate`, 'success');
       };
 
+      // Escape HTML to prevent the AI-generated prompt from breaking card markup
+      const escHtml = s => (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
       card.innerHTML = `
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
           <span style="background:${borderColor};color:#fff;font-size:0.68rem;font-weight:700;padding:2px 8px;border-radius:99px;">${p.style}</span>
           <span style="font-size:0.68rem;color:#64748b;">${p.suggested_length || 8}s · ${p.suggested_aspect_ratio || '9:16'}</span>
         </div>
-        <div style="font-size:0.78rem;color:#cbd5e1;line-height:1.5;">${p.prompt.substring(0, 200)}${p.prompt.length > 200 ? '…' : ''}</div>
+        <div style="font-size:0.78rem;color:#cbd5e1;line-height:1.55;white-space:pre-wrap;">${escHtml(p.prompt)}</div>
       `;
       container.appendChild(card);
     });
@@ -1478,7 +1492,10 @@ async function generateVideo() {
   if (!prompt) { showToast('Write or select a video prompt first', 'error'); return; }
   if (!_selectedAtlasModel) { showToast('Select a video model first', 'error'); return; }
 
-  const aspectRatio = document.getElementById('modal-video-aspect')?.value || '9:16';
+  // Aspect ratio / size — use dropdown value; fall back to first option for the current model
+  // (different models use different formats: "9:16" vs "720x1280" for Sora)
+  const aspectSelEl = document.getElementById('modal-video-aspect');
+  const aspectRatio = aspectSelEl?.value || aspectSelEl?.options?.[0]?.value || '9:16';
   const duration = parseInt(document.getElementById('modal-video-duration')?.value || '8');
 
   const btn = document.getElementById('modal-gen-video-btn');
@@ -1979,8 +1996,12 @@ function onVariantModeChange() {
   const mode = document.getElementById('wizard-variant-mode')?.value || 'auto';
   const wrap = document.getElementById('wizard-pick-format-wrap');
   if (!wrap) return;
-  wrap.style.display = (mode === 'pick') ? 'flex' : 'none';
-  wrap.style.flexDirection = 'column';
+  if (mode === 'pick') {
+    wrap.style.setProperty('display', 'flex', 'important');
+    wrap.style.setProperty('flex-direction', 'column', 'important');
+  } else {
+    wrap.style.setProperty('display', 'none', 'important');
+  }
 }
 
 async function wizardGenerate() {

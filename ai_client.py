@@ -89,7 +89,7 @@ def parse_json_response(text: str) -> dict:
     # Last resort: treat as plain caption text
     return {
         "caption": text,
-        "hashtags": "#SmartHome #ConnectNest #MelbourneHomes #HomeAutomation",
+        "hashtags": "#SmartHome #ConnectNest #AustralianHomes #HomeAutomation",
         "image_suggestion": "A modern smart home interior showcasing connected devices",
         "hook": text[:120] if text else "",
         "cta": "Visit connectnest.com.au to learn more",
