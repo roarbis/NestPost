@@ -245,8 +245,7 @@ async def generate_video_prompts(
         "AI video generation. Each brief must be detailed enough that the AI model can "
         "produce a publish-ready Reel with no ambiguity.\n\n"
         + model_context
-
-        "═══ SMART HOME TECHNICAL VOCABULARY ═══\n"
+        + "═══ SMART HOME TECHNICAL VOCABULARY ═══\n"
         "Use these terms naturally where relevant to the post:\n"
         "Devices/hardware: smart hub, automation panel, touchscreen keypad, motion sensor, "
         "door/window sensor, smart lock, video doorbell, IP camera, NVR, PoE switch, "
