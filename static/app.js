@@ -733,6 +733,22 @@ async function saveModal() {
 async function approveItem() {
   if (!modalItemId) return;
   const approvedId = modalItemId;
+
+  // Auto-save an unsaved generated video before approving so it isn't lost
+  if (window._generatedVideoB64) {
+    try {
+      const prompt = document.getElementById('modal-video-prompt')?.value || '';
+      await api('/api/video/save', 'POST', {
+        content_id: modalItemId,
+        video_base64: window._generatedVideoB64,
+        video_prompt: prompt,
+        mime_type: window._generatedVideoMime || 'video/mp4',
+      });
+      window._generatedVideoB64 = null;
+      window._generatedVideoMime = null;
+    } catch (e) { /* non-fatal — continue with approve */ }
+  }
+
   try {
     await api(`/api/content/${modalItemId}`, 'PUT', { status: 'approved' });
     showToast('Approved', 'success');
