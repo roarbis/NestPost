@@ -734,11 +734,33 @@ async function approveItem() {
   if (!modalItemId) return;
   const approvedId = modalItemId;
 
-  // Auto-save an unsaved generated video before approving so it isn't lost
+  // Auto-save any unsaved generated media before approving
+  // Image: a selection exists in memory but hasn't been saved yet
+  if (selectedImageIdx !== null && generatedImages[selectedImageIdx]) {
+    try {
+      const img = generatedImages[selectedImageIdx];
+      const prompt = document.getElementById('modal-image-prompt')?.value || '';
+      const data = await api('/api/save-image', 'POST', {
+        content_id: modalItemId,
+        image_base64: img.base64,
+        image_prompt: prompt,
+        mime_type: img.mime_type,
+      });
+      // Update the saved image preview inline
+      const savedSection = document.getElementById('modal-saved-image');
+      const preview = document.getElementById('modal-saved-image-preview');
+      if (savedSection && preview && data.image_path) {
+        preview.src = data.image_path + '?t=' + Date.now();
+        savedSection.style.display = '';
+      }
+    } catch (e) { /* non-fatal — continue with approve */ }
+  }
+
+  // Video: base64 in memory that hasn't been saved yet
   if (window._generatedVideoB64) {
     try {
       const prompt = document.getElementById('modal-video-prompt')?.value || '';
-      await api('/api/video/save', 'POST', {
+      const data = await api('/api/video/save', 'POST', {
         content_id: modalItemId,
         video_base64: window._generatedVideoB64,
         video_prompt: prompt,
@@ -746,6 +768,12 @@ async function approveItem() {
       });
       window._generatedVideoB64 = null;
       window._generatedVideoMime = null;
+      const savedSection = document.getElementById('modal-saved-video');
+      const preview = document.getElementById('modal-saved-video-preview');
+      if (savedSection && preview && data.video_path) {
+        preview.src = data.video_path + '?t=' + Date.now();
+        savedSection.style.display = '';
+      }
     } catch (e) { /* non-fatal — continue with approve */ }
   }
 
