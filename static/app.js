@@ -140,12 +140,17 @@ function _buildWizardVideoProviderCards(videoData) {
     cards[key] = card;
   });
 
-  // Auto-select preferred available provider (Kling > fal > Runway > Luma > Veo3)
+  // Auto-select preferred available provider (Atlas Cloud > Kling > fal > paid providers)
   const autoKey = preferredOrder.find(k => enabledKeys.has(k));
   if (autoKey) {
     wizardState.videoProvider = providerIdMap[autoKey] || autoKey;
     const autoCard = cards[autoKey];
     if (autoCard) { autoCard.style.borderColor = '#6366f1'; autoCard.style.background = 'rgba(99,102,241,0.15)'; }
+    // If atlas cloud auto-selected, show model sub-picker (models may not be loaded yet — renderWizardAtlasModelCards is also called in loadAtlasCloudModels)
+    if (autoKey === 'atlascloud_video') {
+      const acRow = document.getElementById('wizard-atlascloud-model-row');
+      if (acRow) acRow.style.display = '';
+    }
   }
 }
 
@@ -157,6 +162,18 @@ function setWizardVideoProvider(provider, card) {
   });
   card.style.borderColor = '#6366f1';
   card.style.background  = 'rgba(99,102,241,0.15)';
+
+  // Show Atlas Cloud model sub-picker only when Atlas Cloud Video is selected
+  const acRow = document.getElementById('wizard-atlascloud-model-row');
+  if (acRow) {
+    const isAtlas = provider === 'atlascloud_video';
+    acRow.style.display = isAtlas ? '' : 'none';
+    if (isAtlas) {
+      wizardState.atlascloudModel = null;
+      renderWizardAtlasModelCards();
+    }
+  }
+
   updateWizardGenBtn();
 }
 
@@ -630,9 +647,14 @@ async function openModal(id) {
     window._generatedVideoB64 = null;
     window._generatedVideoMime = null;
 
-    // Reset model selection state for video section
+    // Reset model selection state for video section (pre-select if chosen in wizard)
     _selectedAtlasModel = null;
+    if (wizardState.atlascloudModel) {
+      _selectedAtlasModel = wizardState.atlascloudModel;
+      wizardState.atlascloudModel = null; // consume it
+    }
     renderAtlasModelCards();
+    if (_selectedAtlasModel) selectAtlasModel(_selectedAtlasModel);
     const paramsEl = document.getElementById('modal-video-params');
     if (paramsEl) paramsEl.style.display = 'none';
     document.getElementById('modal-video-suggestions').style.display = 'none';
@@ -1281,6 +1303,8 @@ async function loadAtlasCloudModels() {
     const data = await api('/api/video/atlascloud-models');
     _atlascloudModels = data.models || [];
     renderAtlasModelCards();
+    // Also populate wizard sub-picker if atlas cloud is already auto-selected
+    if (wizardState.videoProvider === 'atlascloud_video') renderWizardAtlasModelCards();
   } catch { /* silent */ }
 }
 
@@ -1749,10 +1773,41 @@ async function logoutUser() {
 
 // ── V3 Content Creation Wizard ────────────────────────────────────────────────
 
-let wizardState = { intent: null, duration: 10, topicMode: 'auto', selectedTopicId: null, videoProvider: null };
+let wizardState = { intent: null, duration: 10, topicMode: 'auto', selectedTopicId: null, videoProvider: null, atlascloudModel: null };
 let _wizardTopicsPopulated = false;
 let _wizardCurrentContentId = null;
 let _wizardGeneratedImages = [];
+
+function renderWizardAtlasModelCards() {
+  const container = document.getElementById('wizard-atlascloud-model-cards');
+  if (!container) return;
+  container.innerHTML = '';
+  const colors = ['#2dd4bf', '#6366f1', '#f97316', '#a78bfa'];
+  _atlascloudModels.forEach((m, i) => {
+    const isSelected = wizardState.atlascloudModel === m.id;
+    const color = colors[i] || '#6366f1';
+    const card = document.createElement('div');
+    card.style.cssText = `background:${isSelected ? color + '15' : 'rgba(15,23,42,0.5)'};border:1.5px solid ${isSelected ? color : 'rgba(255,255,255,0.08)'};border-radius:10px;padding:10px 12px;cursor:pointer;transition:all 0.2s;`;
+    card.onmouseover = () => { if (wizardState.atlascloudModel !== m.id) card.style.borderColor = color + '80'; };
+    card.onmouseout  = () => { if (wizardState.atlascloudModel !== m.id) card.style.borderColor = 'rgba(255,255,255,0.08)'; };
+    card.onclick = () => selectWizardAtlasModel(m.id);
+    const costBadge = m.cost_per_second
+      ? `<span style="font-size:0.6rem;background:${color}22;color:${color};border-radius:4px;padding:1px 5px;font-weight:700;">$${m.cost_per_second}/s</span>`
+      : '';
+    card.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+        <span style="font-size:0.8rem;font-weight:700;color:#f1f5f9;">${m.label}</span>
+        ${costBadge}
+      </div>
+      <div style="font-size:0.68rem;color:#64748b;">${m.note || ''}</div>`;
+    container.appendChild(card);
+  });
+}
+
+function selectWizardAtlasModel(modelId) {
+  wizardState.atlascloudModel = modelId;
+  renderWizardAtlasModelCards();
+}
 
 function setWizardIntent(intent) {
   wizardState.intent = intent;
@@ -2343,7 +2398,7 @@ async function wizardGenerateVideo() {
 
 function resetWizard() {
   // Reset state
-  wizardState = { intent: null, duration: 10, topicMode: 'auto', selectedTopicId: null, videoProvider: null };
+  wizardState = { intent: null, duration: 10, topicMode: 'auto', selectedTopicId: null, videoProvider: null, atlascloudModel: null };
   _wizardCurrentContentId = null;
   _wizardGeneratedImages  = [];
 
