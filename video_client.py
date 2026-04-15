@@ -1115,7 +1115,7 @@ def concat_cta_video(main_b64: str, cta_b64: str, mime_type: str = "video/mp4") 
         # ── Step 1: Add silent audio to main clip ────────────────────────────
         # AI-generated videos have no audio track; the CTA does. Without matching
         # streams, the concat demuxer shifts audio by the main clip duration.
-        # -f lavfi anullsrc generates silence; -shortest stops at video end.
+        # Attempt A: fast stream-copy for video (works for most models).
         step1 = subprocess.run(
             [
                 "ffmpeg", "-y",
@@ -1129,8 +1129,27 @@ def concat_cta_video(main_b64: str, cta_b64: str, mime_type: str = "video/mp4") 
             capture_output=True,
             timeout=120,
         )
-        # If step 1 fails (main already has audio, or codec issue), use original
-        src_main = main_a_path if step1.returncode == 0 else main_path
+        # Attempt B: Sora (and some other models) return a format that can't be
+        # stream-copied — fall back to a full re-encode with libx264.
+        if step1.returncode != 0:
+            step1 = subprocess.run(
+                [
+                    "ffmpeg", "-y",
+                    "-i", main_path,
+                    "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+                    "-shortest",
+                    "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                    "-c:a", "aac", "-b:a", "128k",
+                    main_a_path,
+                ],
+                capture_output=True,
+                timeout=180,
+            )
+        if step1.returncode != 0:
+            raise RuntimeError(
+                f"Could not mux silent audio into main clip: {step1.stderr.decode()[:300]}"
+            )
+        src_main = main_a_path
 
         # ── Step 2: filter_complex concat — frame-accurate, both streams sync'd ─
         result = subprocess.run(
@@ -1204,7 +1223,9 @@ def overlay_logo_on_video(
                 "-i", logo_path,
                 "-filter_complex",
                 f"[1:v]scale=-1:{logo_height}[logo];"
-                f"[0:v][logo]overlay={overlay_pos}:format=auto",
+                f"[0:v][logo]overlay={overlay_pos}:format=auto[outv]",
+                "-map", "[outv]",
+                "-map", "0:a?",          # copy audio if present; skip if silent (e.g. Sora)
                 "-c:v", "libx264", "-preset", "fast", "-crf", "23",
                 "-c:a", "copy",
                 out_path,
