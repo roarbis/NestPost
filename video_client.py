@@ -1086,7 +1086,15 @@ async def _poll_atlascloud(prediction_id: str, api_key: str, max_wait: int = 600
 
 def concat_cta_video(main_b64: str, cta_b64: str, mime_type: str = "video/mp4") -> str:
     """Concatenate main video + CTA clip using FFmpeg.
-    Both inputs are base64-encoded. Returns base64-encoded merged mp4."""
+    Both inputs are base64-encoded. Returns base64-encoded merged mp4.
+
+    Uses a two-step approach to fix audio sync:
+      1. Mux the main clip (AI-generated, usually silent) with a matching-length
+         silent audio track so both inputs have identical stream layouts.
+      2. Use filter_complex concat (not the concat demuxer) for frame-accurate
+         joining — this eliminates the 2-3s CTA audio delay caused by the
+         demuxer mis-aligning audio when one input has no audio stream.
+    """
     import base64
     import subprocess
     import tempfile
@@ -1094,48 +1102,60 @@ def concat_cta_video(main_b64: str, cta_b64: str, mime_type: str = "video/mp4") 
 
     ext = "mp4"
     with tempfile.TemporaryDirectory() as tmp:
-        main_path = os.path.join(tmp, f"main.{ext}")
-        cta_path  = os.path.join(tmp, f"cta.{ext}")
-        out_path  = os.path.join(tmp, f"out.{ext}")
-        list_path = os.path.join(tmp, "concat.txt")
+        main_path    = os.path.join(tmp, f"main.{ext}")
+        main_a_path  = os.path.join(tmp, f"main_audio.{ext}")  # main + silent audio
+        cta_path     = os.path.join(tmp, f"cta.{ext}")
+        out_path     = os.path.join(tmp, f"out.{ext}")
 
         with open(main_path, "wb") as f:
             f.write(base64.b64decode(main_b64))
         with open(cta_path, "wb") as f:
             f.write(base64.b64decode(cta_b64))
 
-        # FFmpeg concat demuxer — lossless, no re-encode needed when codecs match
-        with open(list_path, "w") as f:
-            f.write(f"file '{main_path}'\nfile '{cta_path}'\n")
-
-        result = subprocess.run(
+        # ── Step 1: Add silent audio to main clip ────────────────────────────
+        # AI-generated videos have no audio track; the CTA does. Without matching
+        # streams, the concat demuxer shifts audio by the main clip duration.
+        # -f lavfi anullsrc generates silence; -shortest stops at video end.
+        step1 = subprocess.run(
             [
                 "ffmpeg", "-y",
-                "-f", "concat", "-safe", "0",
-                "-i", list_path,
-                "-c", "copy",
-                out_path,
+                "-i", main_path,
+                "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+                "-shortest",
+                "-c:v", "copy",
+                "-c:a", "aac", "-b:a", "128k",
+                main_a_path,
             ],
             capture_output=True,
             timeout=120,
         )
+        # If step 1 fails (main already has audio, or codec issue), use original
+        src_main = main_a_path if step1.returncode == 0 else main_path
+
+        # ── Step 2: filter_complex concat — frame-accurate, both streams sync'd ─
+        result = subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-i", src_main,
+                "-i", cta_path,
+                "-filter_complex",
+                "[0:v]setpts=PTS-STARTPTS,format=yuv420p[v0];"
+                "[0:a]asetpts=PTS-STARTPTS[a0];"
+                "[1:v]setpts=PTS-STARTPTS,format=yuv420p[v1];"
+                "[1:a]asetpts=PTS-STARTPTS[a1];"
+                "[v0][a0][v1][a1]concat=n=2:v=1:a=1[outv][outa]",
+                "-map", "[outv]",
+                "-map", "[outa]",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-c:a", "aac", "-ar", "44100",
+                out_path,
+            ],
+            capture_output=True,
+            timeout=240,
+        )
 
         if result.returncode != 0:
-            # If codec copy fails (different codecs/resolutions), re-encode
-            result = subprocess.run(
-                [
-                    "ffmpeg", "-y",
-                    "-f", "concat", "-safe", "0",
-                    "-i", list_path,
-                    "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-                    "-c:a", "aac",
-                    out_path,
-                ],
-                capture_output=True,
-                timeout=180,
-            )
-            if result.returncode != 0:
-                raise RuntimeError(f"FFmpeg concat failed: {result.stderr.decode()[:300]}")
+            raise RuntimeError(f"FFmpeg concat failed: {result.stderr.decode()[:400]}")
 
         with open(out_path, "rb") as f:
             return base64.b64encode(f.read()).decode()
