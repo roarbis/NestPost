@@ -1228,9 +1228,17 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
         video_b64 = result["video_base64"]
         mime_type = result.get("mime_type", "video/mp4")
 
-        # Append CTA clip if configured and requested
+        # ── Post-processing pipeline: CTA concat → logo overlay ──
+        # Both run here (not at save time) so the preview the user sees matches
+        # what gets saved. Each step logs its result to stdout → visible in
+        # Render logs under the service "Logs" tab.
+
+        # ── Step A: Append CTA clip if configured and requested ──
+        print(f"[video-postprocess] append_cta_requested={req.append_cta} provider={req.provider} model={req.model_id}")
         cta_url = get_setting("cta_video_url", "") if req.append_cta else ""
         cta_b64 = get_setting("cta_video_b64", "") if req.append_cta else ""
+        print(f"[video-postprocess] cta_url_set={bool(cta_url)} cta_b64_set={bool(cta_b64)}")
+
         if cta_url and not cta_b64:
             # Fetch CTA from R2
             try:
@@ -1240,15 +1248,33 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
                     _r.raise_for_status()
                     import base64 as _b64
                     cta_b64 = _b64.b64encode(_r.content).decode()
+                print(f"[video-postprocess] CTA fetched from R2 ok ({len(cta_b64)} b64 chars)")
             except Exception as e:
-                print(f"[CTA fetch failed, skipping concat] {e}")
+                print(f"[video-postprocess] CTA fetch FAILED: {e}")
                 cta_b64 = ""
 
         if cta_b64:
             try:
+                pre_len = len(video_b64)
                 video_b64 = concat_cta_video(video_b64, cta_b64, mime_type)
+                print(f"[video-postprocess] CTA concat OK ({pre_len} → {len(video_b64)} b64 chars)")
             except Exception as e:
-                print(f"[CTA concat failed, returning raw video] {e}")
+                print(f"[video-postprocess] CTA concat FAILED, returning raw video: {e}")
+        else:
+            print(f"[video-postprocess] CTA skipped — nothing to concat")
+
+        # ── Step B: Burn in brand logo (same logo used for images) ──
+        logo_b64_setting = get_setting("brand_logo_b64", "")
+        print(f"[video-postprocess] brand_logo_configured={bool(logo_b64_setting)}")
+        if logo_b64_setting:
+            try:
+                pre_len = len(video_b64)
+                video_b64 = overlay_logo_on_video(video_b64, logo_b64_setting, position="top_left")
+                print(f"[video-postprocess] logo overlay OK ({pre_len} → {len(video_b64)} b64 chars)")
+            except Exception as e:
+                print(f"[video-postprocess] logo overlay FAILED, returning video without logo: {e}")
+        else:
+            print(f"[video-postprocess] logo skipped — no brand_logo_b64 setting")
 
         video_result = {
             "status": "complete",
@@ -1283,14 +1309,9 @@ async def save_video(req: SaveVideoRequest):
         conn.close()
         raise HTTPException(status_code=404, detail="Content not found")
 
-    # Apply brand logo overlay if one is configured (same logo used for images)
+    # CTA concat + logo overlay already applied at generation time (see
+    # /api/video/generate). video_base64 received here already has both burned in.
     video_b64 = req.video_base64
-    logo_b64 = get_setting("brand_logo_b64", "")
-    if logo_b64:
-        try:
-            video_b64 = overlay_logo_on_video(video_b64, logo_b64, position="top_left")
-        except Exception as e:
-            print(f"[Logo overlay on video failed, saving without logo] {e}")
 
     r2_config = _get_r2_config()
     storage_mode = "r2" if is_r2_configured(r2_config) else "blob"

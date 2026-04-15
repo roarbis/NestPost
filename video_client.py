@@ -1088,12 +1088,10 @@ def concat_cta_video(main_b64: str, cta_b64: str, mime_type: str = "video/mp4") 
     """Concatenate main video + CTA clip using FFmpeg.
     Both inputs are base64-encoded. Returns base64-encoded merged mp4.
 
-    Uses a two-step approach to fix audio sync:
-      1. Mux the main clip (AI-generated, usually silent) with a matching-length
-         silent audio track so both inputs have identical stream layouts.
-      2. Use filter_complex concat (not the concat demuxer) for frame-accurate
-         joining — this eliminates the 2-3s CTA audio delay caused by the
-         demuxer mis-aligning audio when one input has no audio stream.
+    Single-pass approach: one ffmpeg command that reads both videos + generates
+    silent audio for the main clip inline (via anullsrc lavfi input) and concats
+    everything with filter_complex. Works regardless of source codec (Sora, Veo,
+    Kling, etc.) because everything is re-encoded to a common target.
     """
     import base64
     import subprocess
@@ -1102,80 +1100,69 @@ def concat_cta_video(main_b64: str, cta_b64: str, mime_type: str = "video/mp4") 
 
     ext = "mp4"
     with tempfile.TemporaryDirectory() as tmp:
-        main_path    = os.path.join(tmp, f"main.{ext}")
-        main_a_path  = os.path.join(tmp, f"main_audio.{ext}")  # main + silent audio
-        cta_path     = os.path.join(tmp, f"cta.{ext}")
-        out_path     = os.path.join(tmp, f"out.{ext}")
+        main_path = os.path.join(tmp, f"main.{ext}")
+        cta_path  = os.path.join(tmp, f"cta.{ext}")
+        out_path  = os.path.join(tmp, f"out.{ext}")
 
         with open(main_path, "wb") as f:
             f.write(base64.b64decode(main_b64))
         with open(cta_path, "wb") as f:
             f.write(base64.b64decode(cta_b64))
 
-        # ── Step 1: Add silent audio to main clip ────────────────────────────
-        # AI-generated videos have no audio track; the CTA does. Without matching
-        # streams, the concat demuxer shifts audio by the main clip duration.
-        # Attempt A: fast stream-copy for video (works for most models).
-        step1 = subprocess.run(
-            [
-                "ffmpeg", "-y",
-                "-i", main_path,
-                "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
-                "-shortest",
-                "-c:v", "copy",
-                "-c:a", "aac", "-b:a", "128k",
-                main_a_path,
-            ],
-            capture_output=True,
-            timeout=120,
-        )
-        # Attempt B: Sora (and some other models) return a format that can't be
-        # stream-copied — fall back to a full re-encode with libx264.
-        if step1.returncode != 0:
-            step1 = subprocess.run(
-                [
-                    "ffmpeg", "-y",
-                    "-i", main_path,
-                    "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
-                    "-shortest",
-                    "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-                    "-c:a", "aac", "-b:a", "128k",
-                    main_a_path,
-                ],
-                capture_output=True,
-                timeout=180,
-            )
-        if step1.returncode != 0:
-            raise RuntimeError(
-                f"Could not mux silent audio into main clip: {step1.stderr.decode()[:300]}"
-            )
-        src_main = main_a_path
+        print(f"[ffmpeg-concat] main={os.path.getsize(main_path)}B cta={os.path.getsize(cta_path)}B")
 
-        # ── Step 2: filter_complex concat — frame-accurate, both streams sync'd ─
-        result = subprocess.run(
-            [
-                "ffmpeg", "-y",
-                "-i", src_main,
-                "-i", cta_path,
-                "-filter_complex",
-                "[0:v]setpts=PTS-STARTPTS,format=yuv420p[v0];"
-                "[0:a]asetpts=PTS-STARTPTS[a0];"
-                "[1:v]setpts=PTS-STARTPTS,format=yuv420p[v1];"
-                "[1:a]asetpts=PTS-STARTPTS[a1];"
-                "[v0][a0][v1][a1]concat=n=2:v=1:a=1[outv][outa]",
-                "-map", "[outv]",
-                "-map", "[outa]",
-                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-                "-c:a", "aac", "-ar", "44100",
-                out_path,
-            ],
-            capture_output=True,
-            timeout=240,
-        )
+        # Probe main clip duration so we can trim the generated silent audio
+        # to exactly match it. Fall back to 10s if probe fails.
+        main_duration = 10.0
+        try:
+            probe = subprocess.run(
+                [
+                    "ffprobe", "-v", "error",
+                    "-show_entries", "format=duration",
+                    "-of", "default=noprint_wrappers=1:nokey=1",
+                    main_path,
+                ],
+                capture_output=True, timeout=15,
+            )
+            if probe.returncode == 0:
+                main_duration = float(probe.stdout.decode().strip() or "10.0")
+            print(f"[ffmpeg-concat] main duration probed: {main_duration:.2f}s")
+        except Exception as e:
+            print(f"[ffmpeg-concat] duration probe failed, using fallback 10s: {e}")
+
+        # Single-pass concat:
+        #   input 0 = main video
+        #   input 1 = CTA clip (has audio)
+        #   input 2 = anullsrc (silent audio) — used as the main clip's audio track
+        # Filter: scale both videos, normalize sample rates, concat v+a pairs.
+        # Note: [2:a] is trimmed with atrim to match main video duration so the
+        # final concat audio aligns with main video frames.
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", main_path,
+            "-i", cta_path,
+            "-f", "lavfi", "-t", f"{main_duration:.3f}", "-i", "anullsrc=r=44100:cl=stereo",
+            "-filter_complex",
+            "[0:v]setpts=PTS-STARTPTS,format=yuv420p[v0];"
+            "[2:a]asetpts=PTS-STARTPTS,aformat=sample_rates=44100:channel_layouts=stereo[a0];"
+            "[1:v]setpts=PTS-STARTPTS,format=yuv420p[v1];"
+            "[1:a]asetpts=PTS-STARTPTS,aformat=sample_rates=44100:channel_layouts=stereo[a1];"
+            "[v0][a0][v1][a1]concat=n=2:v=1:a=1[outv][outa]",
+            "-map", "[outv]",
+            "-map", "[outa]",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:a", "aac", "-ar", "44100", "-b:a", "128k",
+            out_path,
+        ]
+        print(f"[ffmpeg-concat] running: {' '.join(cmd[:20])} ...")
+        result = subprocess.run(cmd, capture_output=True, timeout=300)
 
         if result.returncode != 0:
-            raise RuntimeError(f"FFmpeg concat failed: {result.stderr.decode()[:400]}")
+            stderr_tail = result.stderr.decode(errors="replace")[-800:]
+            print(f"[ffmpeg-concat] FAILED rc={result.returncode}\n{stderr_tail}")
+            raise RuntimeError(f"FFmpeg concat failed: {stderr_tail[:500]}")
 
+        print(f"[ffmpeg-concat] OK, output={os.path.getsize(out_path)}B")
         with open(out_path, "rb") as f:
             return base64.b64encode(f.read()).decode()
 
@@ -1211,32 +1198,45 @@ def overlay_logo_on_video(
         logo_path  = os.path.join(tmp, "logo.png")
         out_path   = os.path.join(tmp, "out.mp4")
 
-        with open(video_path, "wb") as f:
-            f.write(base64.b64decode(video_b64))
-        with open(logo_path, "wb") as f:
-            f.write(base64.b64decode(logo_b64))
+        # Strip data URL prefix if present (brand_logo_b64 sometimes stored as "data:image/png;base64,...")
+        clean_logo = logo_b64
+        if "," in clean_logo[:64] and clean_logo.lstrip().startswith("data:"):
+            clean_logo = clean_logo.split(",", 1)[1]
 
-        result = subprocess.run(
-            [
-                "ffmpeg", "-y",
-                "-i", video_path,
-                "-i", logo_path,
-                "-filter_complex",
-                f"[1:v]scale=-1:{logo_height}[logo];"
-                f"[0:v][logo]overlay={overlay_pos}:format=auto[outv]",
-                "-map", "[outv]",
-                "-map", "0:a?",          # copy audio if present; skip if silent (e.g. Sora)
-                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-                "-c:a", "copy",
-                out_path,
-            ],
-            capture_output=True,
-            timeout=180,
-        )
+        try:
+            video_bytes = base64.b64decode(video_b64)
+            logo_bytes  = base64.b64decode(clean_logo)
+        except Exception as e:
+            raise RuntimeError(f"overlay_logo_on_video: base64 decode failed: {e}")
+
+        with open(video_path, "wb") as f:
+            f.write(video_bytes)
+        with open(logo_path, "wb") as f:
+            f.write(logo_bytes)
+
+        print(f"[ffmpeg-logo] video={len(video_bytes)}B logo={len(logo_bytes)}B pos={position}")
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", video_path,
+            "-i", logo_path,
+            "-filter_complex",
+            f"[1:v]scale=-1:{logo_height}[logo];"
+            f"[0:v][logo]overlay={overlay_pos}:format=auto[outv]",
+            "-map", "[outv]",
+            "-map", "0:a?",          # copy audio if present; skip if silent (e.g. Sora)
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:a", "copy",
+            out_path,
+        ]
+        result = subprocess.run(cmd, capture_output=True, timeout=240)
 
         if result.returncode != 0:
-            raise RuntimeError(f"Logo overlay failed: {result.stderr.decode()[:300]}")
+            stderr_tail = result.stderr.decode(errors="replace")[-800:]
+            print(f"[ffmpeg-logo] FAILED rc={result.returncode}\n{stderr_tail}")
+            raise RuntimeError(f"Logo overlay failed: {stderr_tail[:500]}")
 
+        print(f"[ffmpeg-logo] OK, output={os.path.getsize(out_path)}B")
         with open(out_path, "rb") as f:
             return base64.b64encode(f.read()).decode()
 
