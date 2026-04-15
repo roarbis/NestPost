@@ -1060,14 +1060,21 @@ async def _poll_atlascloud(prediction_id: str, api_key: str, max_wait: int = 600
                                  data.get("url") or data.get("video"))
 
                 if video_url:
-                    # Download and return as base64
-                    async with httpx.AsyncClient(timeout=60.0) as dl:
+                    # Download, encode once, free raw bytes immediately.
+                    # (Holding raw + b64 simultaneously is ~2.3x video size in RAM —
+                    # matters on 512MB Render instances.)
+                    import base64, gc
+                    async with httpx.AsyncClient(timeout=120.0) as dl:
                         vresp = await dl.get(video_url)
                         vresp.raise_for_status()
-                    import base64
+                        raw_bytes = vresp.content
+                    print(f"[atlascloud] downloaded {len(raw_bytes)}B from {video_url[:80]}")
+                    encoded = base64.b64encode(raw_bytes).decode()
+                    del raw_bytes
+                    gc.collect()
                     return {
                         "status": "complete",
-                        "video_base64": base64.b64encode(vresp.content).decode(),
+                        "video_base64": encoded,
                         "mime_type": "video/mp4",
                     }
                 # Include truncated raw response to help diagnose field name
@@ -1082,92 +1089,186 @@ async def _poll_atlascloud(prediction_id: str, api_key: str, max_wait: int = 600
     return {"status": "error", "error": f"Atlas Cloud: timed out after {max_wait}s — try a lighter model or shorter duration"}
 
 
-# ── CTA Video Concat ─────────────────────────────────────────────────────────
+# ── Video Post-Processing ────────────────────────────────────────────────────
+#
+# Memory-efficient pipeline for CTA concat + brand logo overlay.
+#
+# Design: operate on file paths, never on base64 strings. The generation
+# endpoint writes the Atlas Cloud video to a temp file, then calls
+# postprocess_video() which does CTA concat + logo overlay in a SINGLE
+# ffmpeg invocation. Output is also a file on disk. Only the very final
+# step base64-encodes the bytes for the HTTP response.
+#
+# Why: Render's 512MB instance was OOM'ing because the old pipeline held
+# up to 4× the video size in memory (b64 input + decoded bytes + b64 output
+# + duplicated string before GC). Keeping video on disk and doing both
+# operations in one ffmpeg pass cuts peak memory to roughly 1× video size.
 
-def concat_cta_video(main_b64: str, cta_b64: str, mime_type: str = "video/mp4") -> str:
-    """Concatenate main video + CTA clip using FFmpeg.
-    Both inputs are base64-encoded. Returns base64-encoded merged mp4.
 
-    Single-pass approach: one ffmpeg command that reads both videos + generates
-    silent audio for the main clip inline (via anullsrc lavfi input) and concats
-    everything with filter_complex. Works regardless of source codec (Sora, Veo,
-    Kling, etc.) because everything is re-encoded to a common target.
-    """
-    import base64
+def _probe_duration(path: str, fallback: float = 10.0) -> float:
+    """Return video duration in seconds via ffprobe. Fallback on error."""
     import subprocess
-    import tempfile
+    try:
+        probe = subprocess.run(
+            [
+                "ffprobe", "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                path,
+            ],
+            capture_output=True, timeout=15,
+        )
+        if probe.returncode == 0:
+            return float(probe.stdout.decode().strip() or fallback)
+    except Exception:
+        pass
+    return fallback
+
+
+def _logo_overlay_pos(position: str, padding: int) -> str:
+    return {
+        "top_left":     f"{padding}:{padding}",
+        "top_right":    f"main_w-overlay_w-{padding}:{padding}",
+        "bottom_left":  f"{padding}:main_h-overlay_h-{padding}",
+        "bottom_right": f"main_w-overlay_w-{padding}:main_h-overlay_h-{padding}",
+    }.get(position, f"{padding}:{padding}")
+
+
+def postprocess_video(
+    main_path: str,
+    out_path: str,
+    cta_path: str | None = None,
+    logo_path: str | None = None,
+    logo_position: str = "top_left",
+    logo_padding: int = 18,
+    logo_height: int = 52,
+) -> None:
+    """Run CTA concat + logo overlay in a SINGLE ffmpeg invocation.
+
+    Writes the final mp4 to ``out_path``. All inputs are file paths — the
+    caller is responsible for writing the main/cta/logo bytes to disk and
+    reading back the result. This keeps peak memory to roughly 1× video size
+    instead of the 4× blowup the old b64-string pipeline had.
+
+    Parameters:
+        main_path: required — the generated video (silent or not)
+        out_path:  required — target for the final mp4
+        cta_path:  optional — if provided, concatenated to the end
+        logo_path: optional — if provided, overlaid on the main video only
+                   (NOT the CTA, which has its own branding)
+    """
+    import subprocess
     import os
 
-    ext = "mp4"
-    with tempfile.TemporaryDirectory() as tmp:
-        main_path = os.path.join(tmp, f"main.{ext}")
-        cta_path  = os.path.join(tmp, f"cta.{ext}")
-        out_path  = os.path.join(tmp, f"out.{ext}")
+    have_cta  = bool(cta_path and os.path.exists(cta_path))
+    have_logo = bool(logo_path and os.path.exists(logo_path))
 
-        with open(main_path, "wb") as f:
-            f.write(base64.b64decode(main_b64))
-        with open(cta_path, "wb") as f:
-            f.write(base64.b64decode(cta_b64))
-
-        print(f"[ffmpeg-concat] main={os.path.getsize(main_path)}B cta={os.path.getsize(cta_path)}B")
-
-        # Probe main clip duration so we can trim the generated silent audio
-        # to exactly match it. Fall back to 10s if probe fails.
-        main_duration = 10.0
-        try:
-            probe = subprocess.run(
-                [
-                    "ffprobe", "-v", "error",
-                    "-show_entries", "format=duration",
-                    "-of", "default=noprint_wrappers=1:nokey=1",
-                    main_path,
-                ],
-                capture_output=True, timeout=15,
-            )
-            if probe.returncode == 0:
-                main_duration = float(probe.stdout.decode().strip() or "10.0")
-            print(f"[ffmpeg-concat] main duration probed: {main_duration:.2f}s")
-        except Exception as e:
-            print(f"[ffmpeg-concat] duration probe failed, using fallback 10s: {e}")
-
-        # Single-pass concat:
-        #   input 0 = main video
-        #   input 1 = CTA clip (has audio)
-        #   input 2 = anullsrc (silent audio) — used as the main clip's audio track
-        # Filter: scale both videos, normalize sample rates, concat v+a pairs.
-        # Note: [2:a] is trimmed with atrim to match main video duration so the
-        # final concat audio aligns with main video frames.
-        cmd = [
-            "ffmpeg", "-y",
-            "-i", main_path,
-            "-i", cta_path,
-            "-f", "lavfi", "-t", f"{main_duration:.3f}", "-i", "anullsrc=r=44100:cl=stereo",
-            "-filter_complex",
-            "[0:v]setpts=PTS-STARTPTS,format=yuv420p[v0];"
-            "[2:a]asetpts=PTS-STARTPTS,aformat=sample_rates=44100:channel_layouts=stereo[a0];"
-            "[1:v]setpts=PTS-STARTPTS,format=yuv420p[v1];"
-            "[1:a]asetpts=PTS-STARTPTS,aformat=sample_rates=44100:channel_layouts=stereo[a1];"
-            "[v0][a0][v1][a1]concat=n=2:v=1:a=1[outv][outa]",
-            "-map", "[outv]",
-            "-map", "[outa]",
-            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-            "-c:a", "aac", "-ar", "44100", "-b:a", "128k",
-            out_path,
-        ]
-        print(f"[ffmpeg-concat] running: {' '.join(cmd[:20])} ...")
-        result = subprocess.run(cmd, capture_output=True, timeout=300)
-
+    if not have_cta and not have_logo:
+        # Nothing to do — just copy the main file through. Stream copy is cheap.
+        print(f"[postprocess] no CTA, no logo — stream-copying main → out")
+        cmd = ["ffmpeg", "-y", "-i", main_path, "-c", "copy", out_path]
+        result = subprocess.run(cmd, capture_output=True, timeout=60)
         if result.returncode != 0:
-            stderr_tail = result.stderr.decode(errors="replace")[-800:]
-            print(f"[ffmpeg-concat] FAILED rc={result.returncode}\n{stderr_tail}")
-            raise RuntimeError(f"FFmpeg concat failed: {stderr_tail[:500]}")
+            # fall back to re-encode
+            cmd = ["ffmpeg", "-y", "-i", main_path, "-c:v", "libx264", "-preset", "fast", "-crf", "23", out_path]
+            result = subprocess.run(cmd, capture_output=True, timeout=180)
+        if result.returncode != 0:
+            raise RuntimeError(f"postprocess passthrough failed: {result.stderr.decode(errors='replace')[-400:]}")
+        return
 
-        print(f"[ffmpeg-concat] OK, output={os.path.getsize(out_path)}B")
-        with open(out_path, "rb") as f:
+    main_size = os.path.getsize(main_path)
+    cta_size  = os.path.getsize(cta_path)  if have_cta  else 0
+    logo_size = os.path.getsize(logo_path) if have_logo else 0
+    print(f"[postprocess] main={main_size}B cta={cta_size}B logo={logo_size}B have_cta={have_cta} have_logo={have_logo}")
+
+    # ── Build ffmpeg inputs + filter_complex dynamically ──
+    inputs: list[str] = ["-i", main_path]
+    next_input = 1  # input 0 is main
+    cta_idx = logo_idx = silent_idx = None
+
+    if have_cta:
+        inputs += ["-i", cta_path]
+        cta_idx = next_input
+        next_input += 1
+        # Silent audio input, sized to main duration, so concat has two matching v+a pairs
+        main_duration = _probe_duration(main_path, fallback=10.0)
+        print(f"[postprocess] main duration probed: {main_duration:.2f}s")
+        inputs += ["-f", "lavfi", "-t", f"{main_duration:.3f}", "-i", "anullsrc=r=44100:cl=stereo"]
+        silent_idx = next_input
+        next_input += 1
+
+    if have_logo:
+        inputs += ["-i", logo_path]
+        logo_idx = next_input
+        next_input += 1
+
+    # Build filter graph
+    filter_parts: list[str] = []
+
+    # Main video stream: optionally overlay logo, always format to yuv420p
+    if have_logo:
+        overlay_pos = _logo_overlay_pos(logo_position, logo_padding)
+        filter_parts.append(f"[{logo_idx}:v]scale=-1:{logo_height}[logo]")
+        filter_parts.append(f"[0:v][logo]overlay={overlay_pos}:format=auto[v0pre]")
+        filter_parts.append("[v0pre]setpts=PTS-STARTPTS,format=yuv420p[v0]")
+    else:
+        filter_parts.append("[0:v]setpts=PTS-STARTPTS,format=yuv420p[v0]")
+
+    if have_cta:
+        # Main's silent audio track (comes from the anullsrc input)
+        filter_parts.append(f"[{silent_idx}:a]asetpts=PTS-STARTPTS,aformat=sample_rates=44100:channel_layouts=stereo[a0]")
+        # CTA video + audio
+        filter_parts.append(f"[{cta_idx}:v]setpts=PTS-STARTPTS,format=yuv420p[v1]")
+        filter_parts.append(f"[{cta_idx}:a]asetpts=PTS-STARTPTS,aformat=sample_rates=44100:channel_layouts=stereo[a1]")
+        # Concat main + CTA
+        filter_parts.append("[v0][a0][v1][a1]concat=n=2:v=1:a=1[outv][outa]")
+        maps = ["-map", "[outv]", "-map", "[outa]"]
+        audio_codec = ["-c:a", "aac", "-ar", "44100", "-b:a", "128k"]
+    else:
+        # No CTA — just output the (possibly-logo'd) main video. Keep original audio if present.
+        maps = ["-map", "[v0]", "-map", "0:a?"]
+        audio_codec = ["-c:a", "copy"]
+
+    filter_complex = ";".join(filter_parts)
+
+    cmd = (
+        ["ffmpeg", "-y"]
+        + inputs
+        + ["-filter_complex", filter_complex]
+        + maps
+        + ["-c:v", "libx264", "-preset", "fast", "-crf", "23"]
+        + audio_codec
+        + [out_path]
+    )
+    print(f"[postprocess] filter_complex: {filter_complex}")
+    result = subprocess.run(cmd, capture_output=True, timeout=360)
+
+    if result.returncode != 0:
+        stderr_tail = result.stderr.decode(errors="replace")[-800:]
+        print(f"[postprocess] FAILED rc={result.returncode}\n{stderr_tail}")
+        raise RuntimeError(f"postprocess_video failed: {stderr_tail[:500]}")
+
+    print(f"[postprocess] OK, output={os.path.getsize(out_path)}B")
+
+
+# ── Legacy b64 wrappers (kept for backwards compatibility) ────────────────────
+# These exist in case anything still imports them, but the generate endpoint
+# now uses postprocess_video() directly with file paths.
+
+def concat_cta_video(main_b64: str, cta_b64: str, mime_type: str = "video/mp4") -> str:
+    """DEPRECATED — use postprocess_video() with file paths instead.
+    Kept as a b64 wrapper around postprocess_video for any legacy callers."""
+    import base64, tempfile, os
+    with tempfile.TemporaryDirectory() as tmp:
+        main_p = os.path.join(tmp, "main.mp4")
+        cta_p  = os.path.join(tmp, "cta.mp4")
+        out_p  = os.path.join(tmp, "out.mp4")
+        with open(main_p, "wb") as f: f.write(base64.b64decode(main_b64))
+        with open(cta_p,  "wb") as f: f.write(base64.b64decode(cta_b64))
+        postprocess_video(main_path=main_p, out_path=out_p, cta_path=cta_p)
+        with open(out_p, "rb") as f:
             return base64.b64encode(f.read()).decode()
 
-
-# ── Logo Overlay on Video ─────────────────────────────────────────────────────
 
 def overlay_logo_on_video(
     video_b64: str,
@@ -1176,68 +1277,24 @@ def overlay_logo_on_video(
     padding: int = 18,
     logo_height: int = 52,
 ) -> str:
-    """Overlay a PNG logo onto a video using FFmpeg.
-    video_b64 / logo_b64: base64-encoded inputs.
-    position: 'top_left' | 'top_right' | 'bottom_left' | 'bottom_right'
-    Returns base64-encoded mp4 with logo burned in."""
-    import base64
-    import subprocess
-    import tempfile
-    import os
-
-    pos_map = {
-        "top_left":     f"{padding}:{padding}",
-        "top_right":    f"main_w-overlay_w-{padding}:{padding}",
-        "bottom_left":  f"{padding}:main_h-overlay_h-{padding}",
-        "bottom_right": f"main_w-overlay_w-{padding}:main_h-overlay_h-{padding}",
-    }
-    overlay_pos = pos_map.get(position, pos_map["top_left"])
-
+    """DEPRECATED — use postprocess_video() with file paths instead.
+    Kept as a b64 wrapper around postprocess_video for any legacy callers."""
+    import base64, tempfile, os
+    clean_logo = logo_b64
+    if "," in clean_logo[:64] and clean_logo.lstrip().startswith("data:"):
+        clean_logo = clean_logo.split(",", 1)[1]
     with tempfile.TemporaryDirectory() as tmp:
-        video_path = os.path.join(tmp, "video.mp4")
-        logo_path  = os.path.join(tmp, "logo.png")
-        out_path   = os.path.join(tmp, "out.mp4")
-
-        # Strip data URL prefix if present (brand_logo_b64 sometimes stored as "data:image/png;base64,...")
-        clean_logo = logo_b64
-        if "," in clean_logo[:64] and clean_logo.lstrip().startswith("data:"):
-            clean_logo = clean_logo.split(",", 1)[1]
-
-        try:
-            video_bytes = base64.b64decode(video_b64)
-            logo_bytes  = base64.b64decode(clean_logo)
-        except Exception as e:
-            raise RuntimeError(f"overlay_logo_on_video: base64 decode failed: {e}")
-
-        with open(video_path, "wb") as f:
-            f.write(video_bytes)
-        with open(logo_path, "wb") as f:
-            f.write(logo_bytes)
-
-        print(f"[ffmpeg-logo] video={len(video_bytes)}B logo={len(logo_bytes)}B pos={position}")
-
-        cmd = [
-            "ffmpeg", "-y",
-            "-i", video_path,
-            "-i", logo_path,
-            "-filter_complex",
-            f"[1:v]scale=-1:{logo_height}[logo];"
-            f"[0:v][logo]overlay={overlay_pos}:format=auto[outv]",
-            "-map", "[outv]",
-            "-map", "0:a?",          # copy audio if present; skip if silent (e.g. Sora)
-            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-            "-c:a", "copy",
-            out_path,
-        ]
-        result = subprocess.run(cmd, capture_output=True, timeout=240)
-
-        if result.returncode != 0:
-            stderr_tail = result.stderr.decode(errors="replace")[-800:]
-            print(f"[ffmpeg-logo] FAILED rc={result.returncode}\n{stderr_tail}")
-            raise RuntimeError(f"Logo overlay failed: {stderr_tail[:500]}")
-
-        print(f"[ffmpeg-logo] OK, output={os.path.getsize(out_path)}B")
-        with open(out_path, "rb") as f:
+        vid_p  = os.path.join(tmp, "video.mp4")
+        logo_p = os.path.join(tmp, "logo.png")
+        out_p  = os.path.join(tmp, "out.mp4")
+        with open(vid_p,  "wb") as f: f.write(base64.b64decode(video_b64))
+        with open(logo_p, "wb") as f: f.write(base64.b64decode(clean_logo))
+        postprocess_video(
+            main_path=vid_p, out_path=out_p,
+            logo_path=logo_p, logo_position=position,
+            logo_padding=padding, logo_height=logo_height,
+        )
+        with open(out_p, "rb") as f:
             return base64.b64encode(f.read()).decode()
 
 

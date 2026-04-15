@@ -35,7 +35,7 @@ from video_client import (
     generate_video, generate_video_prompts, search_stock_footage,
     VIDEO_PROVIDERS, VIDEO_ASPECT_RATIOS, ATLASCLOUD_MODELS, ATLASCLOUD_MODELS_SORTED,
     upload_video_to_r2, delete_video_from_r2, is_r2_configured,
-    concat_cta_video, overlay_logo_on_video,
+    postprocess_video,
 )
 from contextlib import asynccontextmanager
 from starlette.middleware.gzip import GZipMiddleware
@@ -1228,57 +1228,111 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
         video_b64 = result["video_base64"]
         mime_type = result.get("mime_type", "video/mp4")
 
-        # ── Post-processing pipeline: CTA concat → logo overlay ──
-        # Both run here (not at save time) so the preview the user sees matches
-        # what gets saved. Each step logs its result to stdout → visible in
-        # Render logs under the service "Logs" tab.
+        # ── Post-processing pipeline: CTA concat + logo overlay (single pass) ──
+        # Memory-efficient: write Atlas Cloud output to disk immediately, free
+        # the base64 string, then do CTA+logo in one ffmpeg invocation on files.
+        # Render's 512MB instance was OOM'ing on the old b64-in-memory pipeline.
+        import base64 as _b64mod
+        import gc as _gc
+        import os as _os
+        import shutil as _shutil
+        import tempfile as _tf
 
-        # ── Step A: Append CTA clip if configured and requested ──
         print(f"[video-postprocess] append_cta_requested={req.append_cta} provider={req.provider} model={req.model_id}")
-        cta_url = get_setting("cta_video_url", "") if req.append_cta else ""
-        cta_b64 = get_setting("cta_video_b64", "") if req.append_cta else ""
-        print(f"[video-postprocess] cta_url_set={bool(cta_url)} cta_b64_set={bool(cta_b64)}")
 
-        if cta_url and not cta_b64:
-            # Fetch CTA from R2
-            try:
-                import httpx as _httpx
-                async with _httpx.AsyncClient(timeout=30.0) as _cl:
-                    _r = await _cl.get(cta_url)
-                    _r.raise_for_status()
-                    import base64 as _b64
-                    cta_b64 = _b64.b64encode(_r.content).decode()
-                print(f"[video-postprocess] CTA fetched from R2 ok ({len(cta_b64)} b64 chars)")
-            except Exception as e:
-                print(f"[video-postprocess] CTA fetch FAILED: {e}")
-                cta_b64 = ""
+        tmp_dir = _tf.mkdtemp(prefix="nestpost_video_")
+        main_path = _os.path.join(tmp_dir, "main.mp4")
+        cta_path  = _os.path.join(tmp_dir, "cta.mp4")
+        logo_path = _os.path.join(tmp_dir, "logo.png")
+        out_path  = _os.path.join(tmp_dir, "out.mp4")
 
-        if cta_b64:
-            try:
-                pre_len = len(video_b64)
-                video_b64 = concat_cta_video(video_b64, cta_b64, mime_type)
-                print(f"[video-postprocess] CTA concat OK ({pre_len} → {len(video_b64)} b64 chars)")
-            except Exception as e:
-                print(f"[video-postprocess] CTA concat FAILED, returning raw video: {e}")
-        else:
-            print(f"[video-postprocess] CTA skipped — nothing to concat")
+        try:
+            # Write the Atlas Cloud video to disk, then drop the big b64 string
+            with open(main_path, "wb") as _f:
+                _f.write(_b64mod.b64decode(video_b64))
+            print(f"[video-postprocess] main written to disk ({_os.path.getsize(main_path)}B)")
+            video_b64 = None  # free the big string
+            del result["video_base64"]
+            _gc.collect()
 
-        # ── Step B: Burn in brand logo (same logo used for images) ──
-        logo_b64_setting = get_setting("brand_logo_b64", "")
-        print(f"[video-postprocess] brand_logo_configured={bool(logo_b64_setting)}")
-        if logo_b64_setting:
+            # ── CTA: resolve settings → write to disk ──
+            cta_file_ok = False
+            if req.append_cta:
+                cta_url = get_setting("cta_video_url", "") or ""
+                cta_b64_setting = get_setting("cta_video_b64", "") or ""
+                print(f"[video-postprocess] cta_url_set={bool(cta_url)} cta_b64_set={bool(cta_b64_setting)}")
+
+                if cta_b64_setting:
+                    try:
+                        with open(cta_path, "wb") as _f:
+                            _f.write(_b64mod.b64decode(cta_b64_setting))
+                        cta_b64_setting = None
+                        cta_file_ok = True
+                        print(f"[video-postprocess] CTA (from b64 setting) written ({_os.path.getsize(cta_path)}B)")
+                    except Exception as e:
+                        print(f"[video-postprocess] CTA b64 decode FAILED: {e}")
+                elif cta_url:
+                    try:
+                        import httpx as _httpx
+                        async with _httpx.AsyncClient(timeout=60.0) as _cl:
+                            async with _cl.stream("GET", cta_url) as _r:
+                                _r.raise_for_status()
+                                with open(cta_path, "wb") as _f:
+                                    async for chunk in _r.aiter_bytes(chunk_size=65536):
+                                        _f.write(chunk)
+                        cta_file_ok = True
+                        print(f"[video-postprocess] CTA streamed from R2 ({_os.path.getsize(cta_path)}B)")
+                    except Exception as e:
+                        print(f"[video-postprocess] CTA fetch FAILED: {e}")
+                else:
+                    print(f"[video-postprocess] CTA skipped — no cta_video_url or cta_video_b64 set")
+            else:
+                print(f"[video-postprocess] CTA skipped — append_cta=False on request")
+
+            # ── Logo: resolve brand_logo_b64 setting → write to disk ──
+            logo_file_ok = False
+            logo_setting = get_setting("brand_logo_b64", "") or ""
+            if logo_setting:
+                try:
+                    # Strip data URL prefix if present
+                    if "," in logo_setting[:64] and logo_setting.lstrip().startswith("data:"):
+                        logo_setting = logo_setting.split(",", 1)[1]
+                    with open(logo_path, "wb") as _f:
+                        _f.write(_b64mod.b64decode(logo_setting))
+                    logo_setting = None
+                    logo_file_ok = True
+                    print(f"[video-postprocess] logo written ({_os.path.getsize(logo_path)}B)")
+                except Exception as e:
+                    print(f"[video-postprocess] logo decode FAILED: {e}")
+            else:
+                print(f"[video-postprocess] logo skipped — brand_logo_b64 not set")
+            _gc.collect()
+
+            # ── Single ffmpeg pass ──
             try:
-                pre_len = len(video_b64)
-                video_b64 = overlay_logo_on_video(video_b64, logo_b64_setting, position="top_left")
-                print(f"[video-postprocess] logo overlay OK ({pre_len} → {len(video_b64)} b64 chars)")
+                postprocess_video(
+                    main_path=main_path,
+                    out_path=out_path,
+                    cta_path=cta_path if cta_file_ok else None,
+                    logo_path=logo_path if logo_file_ok else None,
+                )
+                final_source = out_path
+                print(f"[video-postprocess] postprocess OK ({_os.path.getsize(out_path)}B)")
             except Exception as e:
-                print(f"[video-postprocess] logo overlay FAILED, returning video without logo: {e}")
-        else:
-            print(f"[video-postprocess] logo skipped — no brand_logo_b64 setting")
+                print(f"[video-postprocess] postprocess FAILED, returning raw main: {e}")
+                final_source = main_path
+
+            # ── Encode final video to b64 for HTTP response ──
+            with open(final_source, "rb") as _f:
+                final_b64 = _b64mod.b64encode(_f.read()).decode()
+            print(f"[video-postprocess] final b64 length={len(final_b64)}")
+        finally:
+            _shutil.rmtree(tmp_dir, ignore_errors=True)
+            _gc.collect()
 
         video_result = {
             "status": "complete",
-            "video_base64": video_b64,
+            "video_base64": final_b64,
             "mime_type": mime_type,
             "provider": req.provider,
             "prompt": req.prompt,
