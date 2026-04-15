@@ -35,7 +35,7 @@ from video_client import (
     generate_video, generate_video_prompts, search_stock_footage,
     VIDEO_PROVIDERS, VIDEO_ASPECT_RATIOS, ATLASCLOUD_MODELS, ATLASCLOUD_MODELS_SORTED,
     upload_video_to_r2, delete_video_from_r2, is_r2_configured,
-    concat_cta_video,
+    concat_cta_video, overlay_logo_on_video,
 )
 from contextlib import asynccontextmanager
 from starlette.middleware.gzip import GZipMiddleware
@@ -1283,13 +1283,22 @@ async def save_video(req: SaveVideoRequest):
         conn.close()
         raise HTTPException(status_code=404, detail="Content not found")
 
+    # Apply brand logo overlay if one is configured (same logo used for images)
+    video_b64 = req.video_base64
+    logo_b64 = get_setting("brand_logo_b64", "")
+    if logo_b64:
+        try:
+            video_b64 = overlay_logo_on_video(video_b64, logo_b64, position="top_left")
+        except Exception as e:
+            print(f"[Logo overlay on video failed, saving without logo] {e}")
+
     r2_config = _get_r2_config()
     storage_mode = "r2" if is_r2_configured(r2_config) else "blob"
 
     if storage_mode == "r2":
         try:
             video_url = upload_video_to_r2(
-                video_base64=req.video_base64,
+                video_base64=video_b64,
                 content_id=req.content_id,
                 mime_type=req.mime_type,
                 account_id=r2_config["account_id"],
@@ -1317,7 +1326,7 @@ async def save_video(req: SaveVideoRequest):
     video_path = f"/api/content/{req.content_id}/video-file"
     conn.execute(
         "UPDATE content SET video_path = ?, video_prompt = ?, video_data = ?, video_mime = ? WHERE id = ?",
-        (video_path, req.video_prompt, req.video_base64, req.mime_type, req.content_id),
+        (video_path, req.video_prompt, video_b64, req.mime_type, req.content_id),
     )
     conn.commit()
     updated = conn.execute(f"SELECT {CONTENT_COLS} FROM content WHERE id = ?", (req.content_id,)).fetchone()

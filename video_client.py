@@ -1161,6 +1161,65 @@ def concat_cta_video(main_b64: str, cta_b64: str, mime_type: str = "video/mp4") 
             return base64.b64encode(f.read()).decode()
 
 
+# ── Logo Overlay on Video ─────────────────────────────────────────────────────
+
+def overlay_logo_on_video(
+    video_b64: str,
+    logo_b64: str,
+    position: str = "top_left",
+    padding: int = 18,
+    logo_height: int = 52,
+) -> str:
+    """Overlay a PNG logo onto a video using FFmpeg.
+    video_b64 / logo_b64: base64-encoded inputs.
+    position: 'top_left' | 'top_right' | 'bottom_left' | 'bottom_right'
+    Returns base64-encoded mp4 with logo burned in."""
+    import base64
+    import subprocess
+    import tempfile
+    import os
+
+    pos_map = {
+        "top_left":     f"{padding}:{padding}",
+        "top_right":    f"main_w-overlay_w-{padding}:{padding}",
+        "bottom_left":  f"{padding}:main_h-overlay_h-{padding}",
+        "bottom_right": f"main_w-overlay_w-{padding}:main_h-overlay_h-{padding}",
+    }
+    overlay_pos = pos_map.get(position, pos_map["top_left"])
+
+    with tempfile.TemporaryDirectory() as tmp:
+        video_path = os.path.join(tmp, "video.mp4")
+        logo_path  = os.path.join(tmp, "logo.png")
+        out_path   = os.path.join(tmp, "out.mp4")
+
+        with open(video_path, "wb") as f:
+            f.write(base64.b64decode(video_b64))
+        with open(logo_path, "wb") as f:
+            f.write(base64.b64decode(logo_b64))
+
+        result = subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-i", video_path,
+                "-i", logo_path,
+                "-filter_complex",
+                f"[1:v]scale=-1:{logo_height}[logo];"
+                f"[0:v][logo]overlay={overlay_pos}:format=auto",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-c:a", "copy",
+                out_path,
+            ],
+            capture_output=True,
+            timeout=180,
+        )
+
+        if result.returncode != 0:
+            raise RuntimeError(f"Logo overlay failed: {result.stderr.decode()[:300]}")
+
+        with open(out_path, "rb") as f:
+            return base64.b64encode(f.read()).decode()
+
+
 # ── Cloudflare R2 Storage ─────────────────────────────────────────────────────
 
 def _get_r2_client(account_id: str, access_key_id: str, secret_access_key: str):
