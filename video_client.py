@@ -1125,6 +1125,30 @@ def _probe_duration(path: str, fallback: float = 10.0) -> float:
     return fallback
 
 
+def _probe_dimensions(path: str, fallback: tuple[int, int] = (720, 1280)) -> tuple[int, int]:
+    """Return (width, height) of the first video stream via ffprobe."""
+    import subprocess
+    try:
+        probe = subprocess.run(
+            [
+                "ffprobe", "-v", "error",
+                "-select_streams", "v:0",
+                "-show_entries", "stream=width,height",
+                "-of", "csv=s=x:p=0",
+                path,
+            ],
+            capture_output=True, timeout=15,
+        )
+        if probe.returncode == 0:
+            out = probe.stdout.decode().strip()
+            if "x" in out:
+                w, h = out.split("x")
+                return int(w), int(h)
+    except Exception:
+        pass
+    return fallback
+
+
 def _logo_overlay_pos(position: str, padding: int) -> str:
     return {
         "top_left":     f"{padding}:{padding}",
@@ -1186,6 +1210,10 @@ def postprocess_video(
     next_input = 1  # input 0 is main
     cta_idx = logo_idx = silent_idx = None
 
+    # Probe main video dimensions up front — needed to normalize CTA to match
+    main_w, main_h = _probe_dimensions(main_path, fallback=(720, 1280))
+    print(f"[postprocess] main dimensions probed: {main_w}x{main_h}")
+
     if have_cta:
         inputs += ["-i", cta_path]
         cta_idx = next_input
@@ -1205,20 +1233,29 @@ def postprocess_video(
     # Build filter graph
     filter_parts: list[str] = []
 
-    # Main video stream: optionally overlay logo, always format to yuv420p
+    # Main video stream: optionally overlay logo, always format to yuv420p,
+    # and force dimensions/SAR to known values so concat sees matching params.
+    main_norm = f"scale={main_w}:{main_h},setsar=1,setpts=PTS-STARTPTS,format=yuv420p"
     if have_logo:
         overlay_pos = _logo_overlay_pos(logo_position, logo_padding)
         filter_parts.append(f"[{logo_idx}:v]scale=-1:{logo_height}[logo]")
         filter_parts.append(f"[0:v][logo]overlay={overlay_pos}:format=auto[v0pre]")
-        filter_parts.append("[v0pre]setpts=PTS-STARTPTS,format=yuv420p[v0]")
+        filter_parts.append(f"[v0pre]{main_norm}[v0]")
     else:
-        filter_parts.append("[0:v]setpts=PTS-STARTPTS,format=yuv420p[v0]")
+        filter_parts.append(f"[0:v]{main_norm}[v0]")
 
     if have_cta:
         # Main's silent audio track (comes from the anullsrc input)
         filter_parts.append(f"[{silent_idx}:a]asetpts=PTS-STARTPTS,aformat=sample_rates=44100:channel_layouts=stereo[a0]")
-        # CTA video + audio
-        filter_parts.append(f"[{cta_idx}:v]setpts=PTS-STARTPTS,format=yuv420p[v1]")
+        # CTA video: scale to fit main dimensions (letterbox/pillarbox), pad,
+        # force SAR 1:1, normalize format. This is the fix for the Sora 720x1280
+        # vs square-CTA 1080x1080 dimension mismatch that concat refuses.
+        cta_norm = (
+            f"scale={main_w}:{main_h}:force_original_aspect_ratio=decrease,"
+            f"pad={main_w}:{main_h}:(ow-iw)/2:(oh-ih)/2:black,"
+            f"setsar=1,setpts=PTS-STARTPTS,format=yuv420p"
+        )
+        filter_parts.append(f"[{cta_idx}:v]{cta_norm}[v1]")
         filter_parts.append(f"[{cta_idx}:a]asetpts=PTS-STARTPTS,aformat=sample_rates=44100:channel_layouts=stereo[a1]")
         # Concat main + CTA
         filter_parts.append("[v0][a0][v1][a1]concat=n=2:v=1:a=1[outv][outa]")
