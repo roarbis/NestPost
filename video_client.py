@@ -1165,7 +1165,7 @@ def postprocess_video(
     logo_path: str | None = None,
     logo_position: str = "top_left",
     logo_padding: int = 18,
-    logo_height: int = 52,
+    logo_height: int = 104,
 ) -> None:
     """Run CTA concat + logo overlay in a SINGLE ffmpeg invocation.
 
