@@ -39,7 +39,7 @@ initTheme();
 document.addEventListener('DOMContentLoaded', async () => {
   showPage('generate');
   setGreeting();
-  await Promise.all([loadHealth(), loadStats(), loadSuggestions(), loadModels(), loadSettings(), loadCurrentUser(), loadBrandLogo(), loadR2Status(), loadCtaStatus()]);
+  await Promise.all([loadHealth(), loadStats(), loadSuggestions(), loadModels(), loadSettings(), loadCurrentUser(), loadBrandLogo(), loadR2Status(), loadCtaStatus(), loadAtlasCloudModels()]);
   loadRecentContent();
 });
 
@@ -95,21 +95,24 @@ function _buildWizardVideoProviderCards(videoData) {
   // Maps sidebar status key → actual provider ID used by video_client.py
   const providerIdMap = { veo3: 'veo3_free', kling: 'kling_free', runway: 'runway', luma: 'luma', fal: 'fal_wan', atlascloud_video: 'atlascloud_video' };
   const providerMeta = {
-    veo3:             { label: 'Veo 3.1',           icon: '🎬', note: 'Google — Paid only' },
+    atlascloud_video: { label: 'Atlas Cloud Models', icon: '☁️', note: 'Sora 2, Veo 3.1, Kling 3.0 Pro' },
     kling:            { label: 'Kling AI',          icon: '🎞️', note: 'Standard credits' },
     fal:              { label: 'WAN 2.1 (fal)',     icon: '⚡', note: 'Free credits included' },
+    veo3:             { label: 'Veo 3.1',           icon: '🎬', note: 'Google — Paid only' },
     runway:           { label: 'Runway Gen-4',      icon: '🚀', note: 'Paid' },
     luma:             { label: 'Luma Dream',        icon: '✨', note: 'Paid' },
-    atlascloud_video: { label: 'Atlas Cloud Video', icon: '☁️', note: 'Kling 3.0 Pro & more' },
   };
 
-  // Preferred auto-select order: Atlas Cloud > Kling > fal > paid providers
-  const preferredOrder = ['atlascloud_video', 'kling', 'fal', 'runway', 'luma', 'veo3'];
+  // Display + auto-select order: Atlas Cloud first, then the rest
+  const displayOrder = ['atlascloud_video', 'kling', 'fal', 'veo3', 'runway', 'luma'];
   const enabledKeys = new Set();
   const cards = {};
 
-  Object.entries(videoData).forEach(([key, info]) => {
-    const providerId = providerIdMap[key] || key;   // e.g. 'kling' → 'kling_free'
+  // Iterate in displayOrder so the wizard cards render in the preferred order
+  displayOrder.forEach(key => {
+    const info = videoData[key];
+    if (!info) return; // skip if backend didn't return this provider
+    const providerId = providerIdMap[key] || key;
     const meta  = providerMeta[key] || { label: key, icon: '🎥', note: '' };
     const ready = info.online;
     const isPaid = info.paid === true;
@@ -140,12 +143,19 @@ function _buildWizardVideoProviderCards(videoData) {
     cards[key] = card;
   });
 
-  // Auto-select preferred available provider (Kling > fal > Runway > Luma > Veo3)
-  const autoKey = preferredOrder.find(k => enabledKeys.has(k));
+  // Auto-select preferred available provider (Atlas Cloud > Kling > fal > paid providers)
+  const autoKey = displayOrder.find(k => enabledKeys.has(k));
   if (autoKey) {
     wizardState.videoProvider = providerIdMap[autoKey] || autoKey;
     const autoCard = cards[autoKey];
     if (autoCard) { autoCard.style.borderColor = '#6366f1'; autoCard.style.background = 'rgba(99,102,241,0.15)'; }
+    // If atlas cloud auto-selected, show model sub-picker and render cards now (may already have models loaded)
+    if (autoKey === 'atlascloud_video') {
+      const acRow = document.getElementById('wizard-atlascloud-model-row');
+      if (acRow) acRow.style.display = '';
+      // Render now; if models not loaded yet, loadAtlasCloudModels will re-render on completion
+      renderWizardAtlasModelCards();
+    }
   }
 }
 
@@ -157,6 +167,18 @@ function setWizardVideoProvider(provider, card) {
   });
   card.style.borderColor = '#6366f1';
   card.style.background  = 'rgba(99,102,241,0.15)';
+
+  // Show Atlas Cloud model sub-picker only when Atlas Cloud Video is selected
+  const acRow = document.getElementById('wizard-atlascloud-model-row');
+  if (acRow) {
+    const isAtlas = provider === 'atlascloud_video';
+    acRow.style.display = isAtlas ? '' : 'none';
+    if (isAtlas) {
+      wizardState.atlascloudModel = null;
+      renderWizardAtlasModelCards();
+    }
+  }
+
   updateWizardGenBtn();
 }
 
@@ -630,8 +652,21 @@ async function openModal(id) {
     window._generatedVideoB64 = null;
     window._generatedVideoMime = null;
 
-    // Auto-generate video prompts on modal open for video posts
-    if (isVideoPost && !item.video_prompt) suggestVideoPrompts();
+    // Reset model selection state for video section (pre-select if chosen in wizard)
+    _selectedAtlasModel = null;
+    if (wizardState.atlascloudModel) {
+      _selectedAtlasModel = wizardState.atlascloudModel;
+      wizardState.atlascloudModel = null; // consume it
+    }
+    renderAtlasModelCards();
+    if (_selectedAtlasModel) selectAtlasModel(_selectedAtlasModel);
+    const paramsEl = document.getElementById('modal-video-params');
+    if (paramsEl) paramsEl.style.display = 'none';
+    document.getElementById('modal-video-suggestions').style.display = 'none';
+    const promptLoading = document.getElementById('modal-video-prompt-loading');
+    if (promptLoading) promptLoading.style.display = 'none';
+    const suggestBtn = document.getElementById('modal-video-suggest-btn');
+    if (suggestBtn) suggestBtn.style.display = 'none';
 
     const approveBtn = document.getElementById('modal-approve-btn');
     approveBtn.innerHTML = item.status === 'approved' ? '<svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg> Approved' : '<svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg> Approve';
@@ -698,6 +733,50 @@ async function saveModal() {
 async function approveItem() {
   if (!modalItemId) return;
   const approvedId = modalItemId;
+
+  // Auto-save any unsaved generated media before approving
+  // Image: a selection exists in memory but hasn't been saved yet
+  if (selectedImageIdx !== null && generatedImages[selectedImageIdx]) {
+    try {
+      const img = generatedImages[selectedImageIdx];
+      const prompt = document.getElementById('modal-image-prompt')?.value || '';
+      const data = await api('/api/save-image', 'POST', {
+        content_id: modalItemId,
+        image_base64: img.base64,
+        image_prompt: prompt,
+        mime_type: img.mime_type,
+      });
+      // Update the saved image preview inline
+      const savedSection = document.getElementById('modal-saved-image');
+      const preview = document.getElementById('modal-saved-image-preview');
+      if (savedSection && preview && data.image_path) {
+        preview.src = data.image_path + '?t=' + Date.now();
+        savedSection.style.display = '';
+      }
+    } catch (e) { /* non-fatal — continue with approve */ }
+  }
+
+  // Video: base64 in memory that hasn't been saved yet
+  if (window._generatedVideoB64) {
+    try {
+      const prompt = document.getElementById('modal-video-prompt')?.value || '';
+      const data = await api('/api/video/save', 'POST', {
+        content_id: modalItemId,
+        video_base64: window._generatedVideoB64,
+        video_prompt: prompt,
+        mime_type: window._generatedVideoMime || 'video/mp4',
+      });
+      window._generatedVideoB64 = null;
+      window._generatedVideoMime = null;
+      const savedSection = document.getElementById('modal-saved-video');
+      const preview = document.getElementById('modal-saved-video-preview');
+      if (savedSection && preview && data.video_path) {
+        preview.src = data.video_path + '?t=' + Date.now();
+        savedSection.style.display = '';
+      }
+    } catch (e) { /* non-fatal — continue with approve */ }
+  }
+
   try {
     await api(`/api/content/${modalItemId}`, 'PUT', { status: 'approved' });
     showToast('Approved', 'success');
@@ -1263,42 +1342,142 @@ async function removeImage() {
 
 // ── Video Generation ─────────────────────────────────────────────────────
 
-function updateVideoModelInfo() {
-  const provider = document.getElementById('modal-video-provider')?.value;
-  const info = document.getElementById('modal-video-model-info');
-  if (!info) return;
-  const providerInfo = {
-    veo3_free:  { text: 'Uses your Gemini API key — top quality, ~5-10 free generations/day', color: '#2dd4bf' },
-    veo3_paid:  { text: 'Uses your Gemini API key — full quality, $0.50/sec', color: '#fbbf24' },
-    kling_free: { text: 'Uses Kling API key — 66 free credits/day, 720p watermarked', color: '#2dd4bf' },
-    kling_pro:  { text: 'Uses Kling API key — 1080p, no watermark', color: '#fbbf24' },
-    atlascloud_video: { text: 'Uses Atlas Cloud API key — model configurable in Settings (Kling 3.0 Pro by default)', color: '#38bdf8' },
-    runway:     { text: 'Uses Runway API key — $0.05-0.10/sec, strong character coherence', color: '#fbbf24' },
-    luma:       { text: 'Uses Luma API key — $0.20/video, good for product reveals', color: '#fbbf24' },
-  };
-  const p = providerInfo[provider] || providerInfo.veo3_free;
-  info.innerHTML = `<span style="width:6px;height:6px;border-radius:50%;background:${p.color};display:inline-block;"></span> ${p.text}`;
+// ── Atlas Cloud Model Selection & Video Generation ──────────────────────────
+
+let _atlascloudModels = [];
+let _selectedAtlasModel = null;
+
+async function loadAtlasCloudModels() {
+  try {
+    const data = await api('/api/video/atlascloud-models');
+    _atlascloudModels = data.models || [];
+    renderAtlasModelCards();
+    // Also populate wizard sub-picker if atlas cloud is already auto-selected
+    if (wizardState.videoProvider === 'atlascloud_video') renderWizardAtlasModelCards();
+  } catch { /* silent */ }
 }
 
-function toggleVideoPaidModels() {
-  const usePaid = document.getElementById('modal-video-use-paid')?.checked;
-  const select = document.getElementById('modal-video-provider');
-  if (!select) return;
-  if (usePaid) {
-    select.value = 'veo3_paid';
-  } else {
-    select.value = 'veo3_free';
+function renderAtlasModelCards() {
+  const container = document.getElementById('modal-atlascloud-model-cards');
+  if (!container) return;
+  container.innerHTML = '';
+
+  const colors = ['#2dd4bf', '#6366f1', '#f97316', '#a78bfa'];
+  _atlascloudModels.forEach((m, i) => {
+    const isSelected = _selectedAtlasModel === m.id;
+    const color = colors[i] || '#6366f1';
+    const card = document.createElement('div');
+    card.dataset.modelId = m.id;
+    card.style.cssText = `background:${isSelected ? color + '15' : 'rgba(15,23,42,0.5)'};border:1.5px solid ${isSelected ? color : 'rgba(255,255,255,0.08)'};border-radius:10px;padding:10px 12px;cursor:pointer;transition:all 0.2s;`;
+    card.onmouseover = () => { if (!isSelected) card.style.borderColor = color + '80'; };
+    card.onmouseout = () => { if (_selectedAtlasModel !== m.id) card.style.borderColor = 'rgba(255,255,255,0.08)'; };
+    card.onclick = () => selectAtlasModel(m.id);
+    card.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+        <span style="font-size:0.8rem;font-weight:700;color:#f1f5f9;">${m.label}</span>
+        <span style="font-size:0.7rem;font-weight:700;color:${color};">$${m.cost_per_sec}/s</span>
+      </div>
+      <div style="font-size:0.68rem;color:#64748b;line-height:1.4;">${m.description}</div>
+      <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px;">
+        ${m.supports_negative_prompt ? '<span style="font-size:0.6rem;background:rgba(99,102,241,0.15);color:#818cf8;padding:1px 6px;border-radius:99px;">neg prompt</span>' : ''}
+        ${m.supports_audio ? '<span style="font-size:0.6rem;background:rgba(167,139,250,0.15);color:#a78bfa;padding:1px 6px;border-radius:99px;">audio</span>' : ''}
+        ${m.resolution_options ? '<span style="font-size:0.6rem;background:rgba(45,212,191,0.15);color:#2dd4bf;padding:1px 6px;border-radius:99px;">' + m.resolution_options.join('/') + '</span>' : ''}
+      </div>
+    `;
+    container.appendChild(card);
+  });
+}
+
+function selectAtlasModel(modelId) {
+  const model = _atlascloudModels.find(m => m.id === modelId);
+  if (!model) return;
+  _selectedAtlasModel = modelId;
+
+  // Re-render cards to update selection
+  renderAtlasModelCards();
+
+  // Populate duration dropdown
+  const durSel = document.getElementById('modal-video-duration');
+  if (durSel) {
+    durSel.innerHTML = '';
+    model.duration_options.forEach(d => {
+      const opt = document.createElement('option');
+      opt.value = d; opt.textContent = `${d} seconds`;
+      if (d === model.duration_default) opt.selected = true;
+      durSel.appendChild(opt);
+    });
   }
-  updateVideoModelInfo();
+
+  // Populate aspect/size dropdown
+  const aspSel = document.getElementById('modal-video-aspect');
+  if (aspSel) {
+    aspSel.innerHTML = '';
+    Object.entries(model.aspect_options).forEach(([val, label]) => {
+      const opt = document.createElement('option');
+      opt.value = val; opt.textContent = `${val} — ${label}`;
+      aspSel.appendChild(opt);
+    });
+  }
+
+  // Resolution dropdown (Veo models)
+  const resWrap = document.getElementById('modal-video-resolution-wrap');
+  const resSel = document.getElementById('modal-video-resolution');
+  if (resWrap && resSel) {
+    if (model.resolution_options && model.resolution_options.length) {
+      resWrap.style.display = 'block';
+      resSel.innerHTML = '';
+      model.resolution_options.forEach(r => {
+        const opt = document.createElement('option');
+        opt.value = r; opt.textContent = r;
+        if (r === model.resolution_default) opt.selected = true;
+        resSel.appendChild(opt);
+      });
+    } else {
+      resWrap.style.display = 'none';
+    }
+  }
+
+  // Audio checkbox (Veo 3.1 full)
+  const audioWrap = document.getElementById('modal-video-audio-wrap');
+  if (audioWrap) audioWrap.style.display = model.supports_audio ? '' : 'none';
+
+  // Negative prompt field visibility
+  const negWrap = document.getElementById('modal-negative-prompt-wrap');
+  if (negWrap) negWrap.style.display = model.supports_negative_prompt ? '' : 'none';
+
+  // Show params section
+  const params = document.getElementById('modal-video-params');
+  if (params) params.style.display = '';
+
+  // Model info
+  const info = document.getElementById('modal-video-model-info');
+  if (info) {
+    info.innerHTML = `<span style="width:6px;height:6px;border-radius:50%;background:#38bdf8;display:inline-block;"></span> ${model.label} — $${model.cost_per_sec}/sec via Atlas Cloud API`;
+  }
+
+  // Auto-generate tailored prompts
+  if (modalItemId) {
+    document.getElementById('modal-video-suggestions').style.display = 'none';
+    suggestVideoPrompts();
+  }
 }
 
 async function suggestVideoPrompts() {
   if (!modalItemId) return;
   const btn = document.getElementById('modal-video-suggest-btn');
-  btn.textContent = '⏳ Generating...';
-  btn.disabled = true;
+  const loading = document.getElementById('modal-video-prompt-loading');
+  const modelLabel = document.getElementById('modal-prompt-loading-model');
+  const model = _atlascloudModels.find(m => m.id === _selectedAtlasModel);
+
+  if (btn) { btn.style.display = 'none'; }
+  if (loading) { loading.style.display = ''; }
+  if (modelLabel && model) modelLabel.textContent = model.label;
+
   try {
-    const data = await api('/api/video/suggest-prompts', 'POST', { content_id: modalItemId });
+    const data = await api('/api/video/suggest-prompts', 'POST', {
+      content_id: modalItemId,
+      model_id: _selectedAtlasModel || '',
+    });
     const prompts = data.prompts || [];
     const container = document.getElementById('modal-video-prompt-cards');
     container.innerHTML = '';
@@ -1316,29 +1495,38 @@ async function suggestVideoPrompts() {
         const negEl = document.getElementById('modal-video-negative-prompt');
         if (negEl && p.negative_prompt) negEl.value = p.negative_prompt;
         const aspectSelect = document.getElementById('modal-video-aspect');
-        if (aspectSelect && p.suggested_aspect_ratio) aspectSelect.value = p.suggested_aspect_ratio;
+        // Only apply the suggested aspect if it's actually one of the model's valid options
+        // (e.g. Sora uses "720x1280" not "9:16" — don't let an invalid suggestion corrupt the select)
+        if (aspectSelect && p.suggested_aspect_ratio) {
+          const validOpts = Array.from(aspectSelect.options).map(o => o.value);
+          if (validOpts.includes(p.suggested_aspect_ratio)) {
+            aspectSelect.value = p.suggested_aspect_ratio;
+          }
+        }
         const durSelect = document.getElementById('modal-video-duration');
         if (durSelect && p.suggested_length) durSelect.value = String(p.suggested_length);
         showToast(`${p.style} prompt loaded — edit if needed, then generate`, 'success');
       };
 
+      // Escape HTML to prevent the AI-generated prompt from breaking card markup
+      const escHtml = s => (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
       card.innerHTML = `
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
           <span style="background:${borderColor};color:#fff;font-size:0.68rem;font-weight:700;padding:2px 8px;border-radius:99px;">${p.style}</span>
           <span style="font-size:0.68rem;color:#64748b;">${p.suggested_length || 8}s · ${p.suggested_aspect_ratio || '9:16'}</span>
         </div>
-        <div style="font-size:0.78rem;color:#cbd5e1;line-height:1.5;">${p.prompt}</div>
+        <div style="font-size:0.78rem;color:#cbd5e1;line-height:1.55;white-space:pre-wrap;">${escHtml(p.prompt)}</div>
       `;
       container.appendChild(card);
     });
 
     document.getElementById('modal-video-suggestions').style.display = '';
-    showToast('3 video prompts generated — click one to use it', 'success');
+    showToast('3 tailored prompts generated — click one to use it', 'success');
   } catch (err) {
     showToast(err.message, 'error');
   } finally {
-    btn.textContent = '🔄 Regenerate Prompts';
-    btn.disabled = false;
+    if (loading) loading.style.display = 'none';
+    if (btn) { btn.textContent = '🔄 Regenerate Prompts'; btn.style.display = ''; btn.disabled = false; }
   }
 }
 
@@ -1346,9 +1534,12 @@ async function generateVideo() {
   if (!modalItemId) return;
   const prompt = document.getElementById('modal-video-prompt')?.value?.trim();
   if (!prompt) { showToast('Write or select a video prompt first', 'error'); return; }
+  if (!_selectedAtlasModel) { showToast('Select a video model first', 'error'); return; }
 
-  const provider = document.getElementById('modal-video-provider')?.value || 'veo3_free';
-  const aspectRatio = document.getElementById('modal-video-aspect')?.value || '9:16';
+  // Aspect ratio / size — use dropdown value; fall back to first option for the current model
+  // (different models use different formats: "9:16" vs "720x1280" for Sora)
+  const aspectSelEl = document.getElementById('modal-video-aspect');
+  const aspectRatio = aspectSelEl?.value || aspectSelEl?.options?.[0]?.value || '9:16';
   const duration = parseInt(document.getElementById('modal-video-duration')?.value || '8');
 
   const btn = document.getElementById('modal-gen-video-btn');
@@ -1362,14 +1553,20 @@ async function generateVideo() {
   try {
     const appendCta = document.getElementById('modal-video-append-cta')?.checked ?? true;
     const negativePrompt = document.getElementById('modal-video-negative-prompt')?.value?.trim() || '';
+    const resolution = document.getElementById('modal-video-resolution')?.value || '';
+    const generateAudio = document.getElementById('modal-video-gen-audio')?.checked || false;
+
     const data = await api('/api/video/generate', 'POST', {
       content_id: modalItemId,
       prompt,
-      provider,
+      provider: 'atlascloud_video',
+      model_id: _selectedAtlasModel,
       aspect_ratio: aspectRatio,
       duration,
       append_cta: appendCta,
       negative_prompt: negativePrompt,
+      resolution,
+      generate_audio: generateAudio,
     });
 
     if (data.video_base64) {
@@ -1637,10 +1834,41 @@ async function logoutUser() {
 
 // ── V3 Content Creation Wizard ────────────────────────────────────────────────
 
-let wizardState = { intent: null, duration: 10, topicMode: 'auto', selectedTopicId: null, videoProvider: null };
+let wizardState = { intent: null, duration: 10, topicMode: 'auto', selectedTopicId: null, videoProvider: null, atlascloudModel: null };
 let _wizardTopicsPopulated = false;
 let _wizardCurrentContentId = null;
 let _wizardGeneratedImages = [];
+
+function renderWizardAtlasModelCards() {
+  const container = document.getElementById('wizard-atlascloud-model-cards');
+  if (!container) return;
+  container.innerHTML = '';
+  const colors = ['#2dd4bf', '#6366f1', '#f97316', '#a78bfa'];
+  _atlascloudModels.forEach((m, i) => {
+    const isSelected = wizardState.atlascloudModel === m.id;
+    const color = colors[i] || '#6366f1';
+    const card = document.createElement('div');
+    card.style.cssText = `background:${isSelected ? color + '15' : 'rgba(15,23,42,0.5)'};border:1.5px solid ${isSelected ? color : 'rgba(255,255,255,0.08)'};border-radius:10px;padding:10px 12px;cursor:pointer;transition:all 0.2s;`;
+    card.onmouseover = () => { if (wizardState.atlascloudModel !== m.id) card.style.borderColor = color + '80'; };
+    card.onmouseout  = () => { if (wizardState.atlascloudModel !== m.id) card.style.borderColor = 'rgba(255,255,255,0.08)'; };
+    card.onclick = () => selectWizardAtlasModel(m.id);
+    const costBadge = m.cost_per_second
+      ? `<span style="font-size:0.6rem;background:${color}22;color:${color};border-radius:4px;padding:1px 5px;font-weight:700;">$${m.cost_per_second}/s</span>`
+      : '';
+    card.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+        <span style="font-size:0.8rem;font-weight:700;color:#f1f5f9;">${m.label}</span>
+        ${costBadge}
+      </div>
+      <div style="font-size:0.68rem;color:#64748b;">${m.note || ''}</div>`;
+    container.appendChild(card);
+  });
+}
+
+function selectWizardAtlasModel(modelId) {
+  wizardState.atlascloudModel = modelId;
+  renderWizardAtlasModelCards();
+}
 
 function setWizardIntent(intent) {
   wizardState.intent = intent;
@@ -1812,8 +2040,12 @@ function onVariantModeChange() {
   const mode = document.getElementById('wizard-variant-mode')?.value || 'auto';
   const wrap = document.getElementById('wizard-pick-format-wrap');
   if (!wrap) return;
-  wrap.style.display = (mode === 'pick') ? 'flex' : 'none';
-  wrap.style.flexDirection = 'column';
+  if (mode === 'pick') {
+    wrap.style.setProperty('display', 'flex', 'important');
+    wrap.style.setProperty('flex-direction', 'column', 'important');
+  } else {
+    wrap.style.setProperty('display', 'none', 'important');
+  }
 }
 
 async function wizardGenerate() {
@@ -2231,7 +2463,7 @@ async function wizardGenerateVideo() {
 
 function resetWizard() {
   // Reset state
-  wizardState = { intent: null, duration: 10, topicMode: 'auto', selectedTopicId: null, videoProvider: null };
+  wizardState = { intent: null, duration: 10, topicMode: 'auto', selectedTopicId: null, videoProvider: null, atlascloudModel: null };
   _wizardCurrentContentId = null;
   _wizardGeneratedImages  = [];
 

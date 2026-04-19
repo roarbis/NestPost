@@ -115,6 +115,75 @@ VIDEO_ASPECT_RATIOS = {
 }
 
 
+# ── Atlas Cloud Model Registry ───────────────────────────────────────────────
+
+ATLASCLOUD_MODELS = {
+    "google/veo3.1-lite/text-to-video": {
+        "label": "Veo 3.1 Lite",
+        "cost_per_sec": 0.05,
+        "duration_options": [4, 6, 8],
+        "duration_default": 8,
+        "aspect_field": "aspect_ratio",
+        "aspect_options": {"16:9": "Landscape", "9:16": "Portrait (Reels)"},
+        "resolution_options": ["720p", "1080p"],
+        "resolution_default": "720p",
+        "supports_negative_prompt": False,
+        "supports_audio": False,
+        "extra_defaults": {"seed": -1},
+        "prompt_style": "visual_only",
+        "description": "Budget-friendly Google model — fast, clean output",
+    },
+    "kwaivgi/kling-v3.0-pro/text-to-video": {
+        "label": "Kling 3.0 Pro",
+        "cost_per_sec": 0.095,
+        "duration_options": [3, 5, 8, 10, 15],
+        "duration_default": 5,
+        "aspect_field": "aspect_ratio",
+        "aspect_options": {"16:9": "Landscape", "9:16": "Portrait (Reels)", "1:1": "Square"},
+        "resolution_options": None,
+        "resolution_default": None,
+        "supports_negative_prompt": True,
+        "supports_audio": False,
+        "extra_defaults": {"cfg_scale": 0.5, "sound": False},
+        "prompt_style": "cinematic_detailed",
+        "description": "Best for cinematic smart home — supports negative prompts",
+    },
+    "openai/sora-2/text-to-video": {
+        "label": "Sora 2",
+        "cost_per_sec": 0.10,
+        "duration_options": [4, 8, 12],
+        "duration_default": 8,
+        "aspect_field": "size",
+        "aspect_options": {"1280x720": "Landscape (1280x720)", "720x1280": "Portrait (720x1280)"},
+        "resolution_options": None,
+        "resolution_default": None,
+        "supports_negative_prompt": False,
+        "supports_audio": False,
+        "extra_defaults": {},
+        "prompt_style": "narrative_rich",
+        "description": "Excels at complex scenes with human motion & narrative",
+    },
+    "google/veo3.1/text-to-video": {
+        "label": "Veo 3.1",
+        "cost_per_sec": 0.20,
+        "duration_options": [4, 6, 8],
+        "duration_default": 8,
+        "aspect_field": "aspect_ratio",
+        "aspect_options": {"16:9": "Landscape", "9:16": "Portrait (Reels)"},
+        "resolution_options": ["720p", "1080p"],
+        "resolution_default": "1080p",
+        "supports_negative_prompt": True,
+        "supports_audio": True,
+        "extra_defaults": {"seed": 1},
+        "prompt_style": "cinematic_audio",
+        "description": "Premium — supports audio generation & negative prompts",
+    },
+}
+
+# Sorted by cost for UI display
+ATLASCLOUD_MODELS_SORTED = sorted(ATLASCLOUD_MODELS.items(), key=lambda x: x[1]["cost_per_sec"])
+
+
 # ── Video prompt generation (uses Gemini to create 3 style variants) ──────────
 
 async def generate_video_prompts(
@@ -123,18 +192,60 @@ async def generate_video_prompts(
     image_suggestion: str,
     hook: str,
     api_key: str,
+    model_id: str = "",
 ) -> list[dict]:
     """Generate 3 video prompt variants (cinematic, dynamic, minimal) from post content.
-    Returns list of {style, prompt, suggested_length, suggested_aspect_ratio}."""
+    When model_id is provided, tailors prompts to that model's capabilities.
+    Returns list of {style, prompt, negative_prompt, suggested_length, suggested_aspect_ratio}."""
+
+    # Model-specific context for prompt tailoring
+    model_cfg = ATLASCLOUD_MODELS.get(model_id, {})
+    model_context = ""
+    if model_cfg:
+        dur_opts = model_cfg.get("duration_options", [])
+        asp_opts = list(model_cfg.get("aspect_options", {}).keys())
+        model_context = f"\n═══ TARGET MODEL: {model_cfg['label']} ═══\n"
+        model_context += f"Valid durations: {dur_opts}\n"
+        model_context += f"Valid aspect ratios/sizes: {asp_opts}\n"
+        if model_cfg.get("supports_audio"):
+            model_context += (
+                "This model supports AUDIO GENERATION. Include ambient sound descriptions "
+                "in each brief (e.g. 'soft hum of HVAC, click of a smart lock, "
+                "gentle chime of a doorbell notification, quiet mechanical whir of motorised blinds'). "
+                "Write sound in a separate sentence starting with 'Ambient sound:'\n"
+            )
+        if not model_cfg.get("supports_negative_prompt"):
+            model_context += (
+                "This model does NOT support negative prompts. "
+                "Still generate a negative_prompt field for reference, but the user should know "
+                "it won't be sent to the API. Fold key exclusions INTO the main prompt as "
+                "positive instructions (e.g. 'smooth steady camera' instead of relying on "
+                "'no shaky camera' in negative prompt).\n"
+            )
+        if model_cfg.get("prompt_style") == "narrative_rich":
+            model_context += (
+                "This model excels at complex narrative scenes with human motion. "
+                "Write prompts as rich descriptive narratives — describe character actions, "
+                "emotional beats, and scene progression in flowing prose.\n"
+            )
+        if model_cfg.get("prompt_style") == "visual_only":
+            model_context += (
+                "This is a budget model. Keep prompts focused on clean visual scenes. "
+                "Avoid overly complex multi-subject scenes.\n"
+            )
+        model_context += (
+            f"IMPORTANT: suggested_length MUST be one of {dur_opts}. "
+            f"suggested_aspect_ratio MUST be one of {asp_opts}.\n\n"
+        )
 
     system = (
         "You are a senior video director and AI video prompt engineer specialising in smart home "
         "and PropTech content for Australian social media (Instagram Reels, TikTok, LinkedIn).\n\n"
         "Given a social media post, generate THREE distinct cinematography briefs optimised for "
-        "any AI video model. Each brief must be detailed enough that the AI model can "
+        "AI video generation. Each brief must be detailed enough that the AI model can "
         "produce a publish-ready Reel with no ambiguity.\n\n"
-
-        "═══ SMART HOME TECHNICAL VOCABULARY ═══\n"
+        + model_context
+        + "═══ SMART HOME TECHNICAL VOCABULARY ═══\n"
         "Use these terms naturally where relevant to the post:\n"
         "Devices/hardware: smart hub, automation panel, touchscreen keypad, motion sensor, "
         "door/window sensor, smart lock, video doorbell, IP camera, NVR, PoE switch, "
@@ -187,12 +298,23 @@ async def generate_video_prompts(
         "Add style-specific exclusions (e.g. for Minimal: busy backgrounds, multiple subjects, "
         "fast cuts; for Dynamic: static locked-off shots, slow dissolves).\n\n"
 
+        "═══ LOCATION / SETTING ═══\n"
+        "All scenes are set in Australia (NOT just Melbourne). Use broad Australian residential "
+        "contexts: suburban homes, coastal properties, modern apartments in any capital city "
+        "(Sydney, Melbourne, Brisbane, Perth, Adelaide, etc.). Favour generic Australian "
+        "architectural cues (open-plan living, alfresco areas, timber decking, eucalyptus views, "
+        "bright natural light) rather than state-specific landmarks. Never name a specific city "
+        "unless the post caption requires it.\n\n"
+
         "═══ OUTPUT RULES ═══\n"
         "- Do NOT include brand names, logos, recognisable faces, or text overlays in prompts\n"
         "- Prompts are for AI video generation — describe only what the camera sees\n"
         "- Use present tense, active voice ('the camera pushes in', not 'camera pushed')\n"
-        "- Suggest aspect ratio based on platform: 9:16 Instagram/TikTok, 16:9 LinkedIn, 1:1 feed\n"
-        "- Suggest length: 5s (punchy hook), 8s (standard Reel), 10–15s (story/explainer)\n\n"
+        "- CRITICAL: suggested_aspect_ratio MUST be an exact value from the TARGET MODEL's "
+        "'Valid aspect ratios/sizes' list above (e.g. Sora uses '1280x720' / '720x1280', "
+        "Veo/Kling use '9:16' / '16:9'). Never invent new formats.\n"
+        "- CRITICAL: suggested_length MUST be an exact value from the TARGET MODEL's "
+        "'Valid durations' list above (not a range, not a guess — one of the allowed integers).\n\n"
 
         "Return ONLY valid JSON — no markdown fences, no commentary:\n"
         "[\n"
@@ -782,6 +904,8 @@ async def generate_video(
     aspect_ratio: str = "9:16",
     duration: int = 8,
     negative_prompt: str = "",
+    resolution: str = "",
+    generate_audio: bool = False,
 ) -> dict:
     """Route video generation to the appropriate provider.
     Returns {status, video_base64, mime_type} or {status, error}."""
@@ -823,7 +947,10 @@ async def generate_video(
         model = api_keys.get("atlascloud_video_model", "kwaivgi/kling-v3.0-pro/text-to-video")
         if not key:
             raise ValueError("Atlas Cloud API key required — add it in Settings")
-        return await generate_video_atlascloud(prompt, key, model, aspect_ratio, duration, negative_prompt)
+        return await generate_video_atlascloud(
+            prompt, key, model, aspect_ratio, duration,
+            negative_prompt, resolution, generate_audio,
+        )
 
     else:
         raise ValueError(f"Unknown video provider: {provider}")
@@ -836,22 +963,42 @@ async def generate_video_atlascloud(
     aspect_ratio: str = "9:16",
     duration: int = 5,
     negative_prompt: str = "",
+    resolution: str = "",
+    generate_audio: bool = False,
 ) -> dict:
     """Generate video via Atlas Cloud aggregator API (queue-based).
-    Docs: https://www.atlascloud.ai/docs/models/video
+    Builds payload dynamically from ATLASCLOUD_MODELS config.
     POST /api/v1/model/generateVideo → returns prediction_id → poll /api/v1/model/prediction/{id}"""
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
-    payload = {
-        "model": model,
-        "prompt": prompt,
-        "aspect_ratio": aspect_ratio,
-        "duration": str(duration),
-    }
-    if negative_prompt:
+
+    model_cfg = ATLASCLOUD_MODELS.get(model, {})
+
+    # Build payload dynamically based on model config
+    payload = {"model": model, "prompt": prompt, "duration": duration}
+
+    # Aspect ratio / size — Sora uses "size", others use "aspect_ratio"
+    aspect_field = model_cfg.get("aspect_field", "aspect_ratio")
+    payload[aspect_field] = aspect_ratio
+
+    # Negative prompt — only for models that support it
+    if negative_prompt and model_cfg.get("supports_negative_prompt", False):
         payload["negative_prompt"] = negative_prompt
+
+    # Resolution — Veo models
+    if resolution and model_cfg.get("resolution_options"):
+        payload["resolution"] = resolution
+
+    # Audio — Veo 3.1 full
+    if model_cfg.get("supports_audio") and generate_audio:
+        payload["generate_audio"] = True
+
+    # Extra model defaults (cfg_scale, sound, seed, etc.)
+    for k, v in model_cfg.get("extra_defaults", {}).items():
+        if k not in payload:
+            payload[k] = v
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(
@@ -913,14 +1060,21 @@ async def _poll_atlascloud(prediction_id: str, api_key: str, max_wait: int = 600
                                  data.get("url") or data.get("video"))
 
                 if video_url:
-                    # Download and return as base64
-                    async with httpx.AsyncClient(timeout=60.0) as dl:
+                    # Download, encode once, free raw bytes immediately.
+                    # (Holding raw + b64 simultaneously is ~2.3x video size in RAM —
+                    # matters on 512MB Render instances.)
+                    import base64, gc
+                    async with httpx.AsyncClient(timeout=120.0) as dl:
                         vresp = await dl.get(video_url)
                         vresp.raise_for_status()
-                    import base64
+                        raw_bytes = vresp.content
+                    print(f"[atlascloud] downloaded {len(raw_bytes)}B from {video_url[:80]}")
+                    encoded = base64.b64encode(raw_bytes).decode()
+                    del raw_bytes
+                    gc.collect()
                     return {
                         "status": "complete",
-                        "video_base64": base64.b64encode(vresp.content).decode(),
+                        "video_base64": encoded,
                         "mime_type": "video/mp4",
                     }
                 # Include truncated raw response to help diagnose field name
@@ -935,62 +1089,249 @@ async def _poll_atlascloud(prediction_id: str, api_key: str, max_wait: int = 600
     return {"status": "error", "error": f"Atlas Cloud: timed out after {max_wait}s — try a lighter model or shorter duration"}
 
 
-# ── CTA Video Concat ─────────────────────────────────────────────────────────
+# ── Video Post-Processing ────────────────────────────────────────────────────
+#
+# Memory-efficient pipeline for CTA concat + brand logo overlay.
+#
+# Design: operate on file paths, never on base64 strings. The generation
+# endpoint writes the Atlas Cloud video to a temp file, then calls
+# postprocess_video() which does CTA concat + logo overlay in a SINGLE
+# ffmpeg invocation. Output is also a file on disk. Only the very final
+# step base64-encodes the bytes for the HTTP response.
+#
+# Why: Render's 512MB instance was OOM'ing because the old pipeline held
+# up to 4× the video size in memory (b64 input + decoded bytes + b64 output
+# + duplicated string before GC). Keeping video on disk and doing both
+# operations in one ffmpeg pass cuts peak memory to roughly 1× video size.
 
-def concat_cta_video(main_b64: str, cta_b64: str, mime_type: str = "video/mp4") -> str:
-    """Concatenate main video + CTA clip using FFmpeg.
-    Both inputs are base64-encoded. Returns base64-encoded merged mp4."""
-    import base64
+
+def _probe_duration(path: str, fallback: float = 10.0) -> float:
+    """Return video duration in seconds via ffprobe. Fallback on error."""
     import subprocess
-    import tempfile
+    try:
+        probe = subprocess.run(
+            [
+                "ffprobe", "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                path,
+            ],
+            capture_output=True, timeout=15,
+        )
+        if probe.returncode == 0:
+            return float(probe.stdout.decode().strip() or fallback)
+    except Exception:
+        pass
+    return fallback
+
+
+def _probe_dimensions(path: str, fallback: tuple[int, int] = (720, 1280)) -> tuple[int, int]:
+    """Return (width, height) of the first video stream via ffprobe."""
+    import subprocess
+    try:
+        probe = subprocess.run(
+            [
+                "ffprobe", "-v", "error",
+                "-select_streams", "v:0",
+                "-show_entries", "stream=width,height",
+                "-of", "csv=s=x:p=0",
+                path,
+            ],
+            capture_output=True, timeout=15,
+        )
+        if probe.returncode == 0:
+            out = probe.stdout.decode().strip()
+            if "x" in out:
+                w, h = out.split("x")
+                return int(w), int(h)
+    except Exception:
+        pass
+    return fallback
+
+
+def _logo_overlay_pos(position: str, padding: int) -> str:
+    return {
+        "top_left":     f"{padding}:{padding}",
+        "top_right":    f"main_w-overlay_w-{padding}:{padding}",
+        "bottom_left":  f"{padding}:main_h-overlay_h-{padding}",
+        "bottom_right": f"main_w-overlay_w-{padding}:main_h-overlay_h-{padding}",
+    }.get(position, f"{padding}:{padding}")
+
+
+def postprocess_video(
+    main_path: str,
+    out_path: str,
+    cta_path: str | None = None,
+    logo_path: str | None = None,
+    logo_position: str = "top_left",
+    logo_padding: int = 18,
+    logo_height: int = 104,
+) -> None:
+    """Run CTA concat + logo overlay in a SINGLE ffmpeg invocation.
+
+    Writes the final mp4 to ``out_path``. All inputs are file paths — the
+    caller is responsible for writing the main/cta/logo bytes to disk and
+    reading back the result. This keeps peak memory to roughly 1× video size
+    instead of the 4× blowup the old b64-string pipeline had.
+
+    Parameters:
+        main_path: required — the generated video (silent or not)
+        out_path:  required — target for the final mp4
+        cta_path:  optional — if provided, concatenated to the end
+        logo_path: optional — if provided, overlaid on the main video only
+                   (NOT the CTA, which has its own branding)
+    """
+    import subprocess
     import os
 
-    ext = "mp4"
-    with tempfile.TemporaryDirectory() as tmp:
-        main_path = os.path.join(tmp, f"main.{ext}")
-        cta_path  = os.path.join(tmp, f"cta.{ext}")
-        out_path  = os.path.join(tmp, f"out.{ext}")
-        list_path = os.path.join(tmp, "concat.txt")
+    have_cta  = bool(cta_path and os.path.exists(cta_path))
+    have_logo = bool(logo_path and os.path.exists(logo_path))
 
-        with open(main_path, "wb") as f:
-            f.write(base64.b64decode(main_b64))
-        with open(cta_path, "wb") as f:
-            f.write(base64.b64decode(cta_b64))
-
-        # FFmpeg concat demuxer — lossless, no re-encode needed when codecs match
-        with open(list_path, "w") as f:
-            f.write(f"file '{main_path}'\nfile '{cta_path}'\n")
-
-        result = subprocess.run(
-            [
-                "ffmpeg", "-y",
-                "-f", "concat", "-safe", "0",
-                "-i", list_path,
-                "-c", "copy",
-                out_path,
-            ],
-            capture_output=True,
-            timeout=120,
-        )
-
+    if not have_cta and not have_logo:
+        # Nothing to do — just copy the main file through. Stream copy is cheap.
+        print(f"[postprocess] no CTA, no logo — stream-copying main → out")
+        cmd = ["ffmpeg", "-y", "-i", main_path, "-c", "copy", out_path]
+        result = subprocess.run(cmd, capture_output=True, timeout=60)
         if result.returncode != 0:
-            # If codec copy fails (different codecs/resolutions), re-encode
-            result = subprocess.run(
-                [
-                    "ffmpeg", "-y",
-                    "-f", "concat", "-safe", "0",
-                    "-i", list_path,
-                    "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-                    "-c:a", "aac",
-                    out_path,
-                ],
-                capture_output=True,
-                timeout=180,
-            )
-            if result.returncode != 0:
-                raise RuntimeError(f"FFmpeg concat failed: {result.stderr.decode()[:300]}")
+            # fall back to re-encode
+            cmd = ["ffmpeg", "-y", "-i", main_path, "-c:v", "libx264", "-preset", "fast", "-crf", "23", out_path]
+            result = subprocess.run(cmd, capture_output=True, timeout=180)
+        if result.returncode != 0:
+            raise RuntimeError(f"postprocess passthrough failed: {result.stderr.decode(errors='replace')[-400:]}")
+        return
 
-        with open(out_path, "rb") as f:
+    main_size = os.path.getsize(main_path)
+    cta_size  = os.path.getsize(cta_path)  if have_cta  else 0
+    logo_size = os.path.getsize(logo_path) if have_logo else 0
+    print(f"[postprocess] main={main_size}B cta={cta_size}B logo={logo_size}B have_cta={have_cta} have_logo={have_logo}")
+
+    # ── Build ffmpeg inputs + filter_complex dynamically ──
+    inputs: list[str] = ["-i", main_path]
+    next_input = 1  # input 0 is main
+    cta_idx = logo_idx = silent_idx = None
+
+    # Probe main video dimensions up front — needed to normalize CTA to match
+    main_w, main_h = _probe_dimensions(main_path, fallback=(720, 1280))
+    print(f"[postprocess] main dimensions probed: {main_w}x{main_h}")
+
+    if have_cta:
+        inputs += ["-i", cta_path]
+        cta_idx = next_input
+        next_input += 1
+        # Silent audio input, sized to main duration, so concat has two matching v+a pairs
+        main_duration = _probe_duration(main_path, fallback=10.0)
+        print(f"[postprocess] main duration probed: {main_duration:.2f}s")
+        inputs += ["-f", "lavfi", "-t", f"{main_duration:.3f}", "-i", "anullsrc=r=44100:cl=stereo"]
+        silent_idx = next_input
+        next_input += 1
+
+    if have_logo:
+        inputs += ["-i", logo_path]
+        logo_idx = next_input
+        next_input += 1
+
+    # Build filter graph
+    filter_parts: list[str] = []
+
+    # Main video stream: optionally overlay logo, always format to yuv420p,
+    # and force dimensions/SAR to known values so concat sees matching params.
+    main_norm = f"scale={main_w}:{main_h},setsar=1,setpts=PTS-STARTPTS,format=yuv420p"
+    if have_logo:
+        overlay_pos = _logo_overlay_pos(logo_position, logo_padding)
+        filter_parts.append(f"[{logo_idx}:v]scale=-1:{logo_height}[logo]")
+        filter_parts.append(f"[0:v][logo]overlay={overlay_pos}:format=auto[v0pre]")
+        filter_parts.append(f"[v0pre]{main_norm}[v0]")
+    else:
+        filter_parts.append(f"[0:v]{main_norm}[v0]")
+
+    if have_cta:
+        # Main's silent audio track (comes from the anullsrc input)
+        filter_parts.append(f"[{silent_idx}:a]asetpts=PTS-STARTPTS,aformat=sample_rates=44100:channel_layouts=stereo[a0]")
+        # CTA video: scale to fit main dimensions (letterbox/pillarbox), pad,
+        # force SAR 1:1, normalize format. This is the fix for the Sora 720x1280
+        # vs square-CTA 1080x1080 dimension mismatch that concat refuses.
+        cta_norm = (
+            f"scale={main_w}:{main_h}:force_original_aspect_ratio=decrease,"
+            f"pad={main_w}:{main_h}:(ow-iw)/2:(oh-ih)/2:black,"
+            f"setsar=1,setpts=PTS-STARTPTS,format=yuv420p"
+        )
+        filter_parts.append(f"[{cta_idx}:v]{cta_norm}[v1]")
+        filter_parts.append(f"[{cta_idx}:a]asetpts=PTS-STARTPTS,aformat=sample_rates=44100:channel_layouts=stereo[a1]")
+        # Concat main + CTA
+        filter_parts.append("[v0][a0][v1][a1]concat=n=2:v=1:a=1[outv][outa]")
+        maps = ["-map", "[outv]", "-map", "[outa]"]
+        audio_codec = ["-c:a", "aac", "-ar", "44100", "-b:a", "128k"]
+    else:
+        # No CTA — just output the (possibly-logo'd) main video. Keep original audio if present.
+        maps = ["-map", "[v0]", "-map", "0:a?"]
+        audio_codec = ["-c:a", "copy"]
+
+    filter_complex = ";".join(filter_parts)
+
+    cmd = (
+        ["ffmpeg", "-y"]
+        + inputs
+        + ["-filter_complex", filter_complex]
+        + maps
+        + ["-c:v", "libx264", "-preset", "fast", "-crf", "23"]
+        + audio_codec
+        + [out_path]
+    )
+    print(f"[postprocess] filter_complex: {filter_complex}")
+    result = subprocess.run(cmd, capture_output=True, timeout=360)
+
+    if result.returncode != 0:
+        stderr_tail = result.stderr.decode(errors="replace")[-800:]
+        print(f"[postprocess] FAILED rc={result.returncode}\n{stderr_tail}")
+        raise RuntimeError(f"postprocess_video failed: {stderr_tail[:500]}")
+
+    print(f"[postprocess] OK, output={os.path.getsize(out_path)}B")
+
+
+# ── Legacy b64 wrappers (kept for backwards compatibility) ────────────────────
+# These exist in case anything still imports them, but the generate endpoint
+# now uses postprocess_video() directly with file paths.
+
+def concat_cta_video(main_b64: str, cta_b64: str, mime_type: str = "video/mp4") -> str:
+    """DEPRECATED — use postprocess_video() with file paths instead.
+    Kept as a b64 wrapper around postprocess_video for any legacy callers."""
+    import base64, tempfile, os
+    with tempfile.TemporaryDirectory() as tmp:
+        main_p = os.path.join(tmp, "main.mp4")
+        cta_p  = os.path.join(tmp, "cta.mp4")
+        out_p  = os.path.join(tmp, "out.mp4")
+        with open(main_p, "wb") as f: f.write(base64.b64decode(main_b64))
+        with open(cta_p,  "wb") as f: f.write(base64.b64decode(cta_b64))
+        postprocess_video(main_path=main_p, out_path=out_p, cta_path=cta_p)
+        with open(out_p, "rb") as f:
+            return base64.b64encode(f.read()).decode()
+
+
+def overlay_logo_on_video(
+    video_b64: str,
+    logo_b64: str,
+    position: str = "top_left",
+    padding: int = 18,
+    logo_height: int = 52,
+) -> str:
+    """DEPRECATED — use postprocess_video() with file paths instead.
+    Kept as a b64 wrapper around postprocess_video for any legacy callers."""
+    import base64, tempfile, os
+    clean_logo = logo_b64
+    if "," in clean_logo[:64] and clean_logo.lstrip().startswith("data:"):
+        clean_logo = clean_logo.split(",", 1)[1]
+    with tempfile.TemporaryDirectory() as tmp:
+        vid_p  = os.path.join(tmp, "video.mp4")
+        logo_p = os.path.join(tmp, "logo.png")
+        out_p  = os.path.join(tmp, "out.mp4")
+        with open(vid_p,  "wb") as f: f.write(base64.b64decode(video_b64))
+        with open(logo_p, "wb") as f: f.write(base64.b64decode(clean_logo))
+        postprocess_video(
+            main_path=vid_p, out_path=out_p,
+            logo_path=logo_p, logo_position=position,
+            logo_padding=padding, logo_height=logo_height,
+        )
+        with open(out_p, "rb") as f:
             return base64.b64encode(f.read()).decode()
 
 

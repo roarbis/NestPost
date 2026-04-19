@@ -43,7 +43,7 @@ PROBLEMS WE SOLVE:
 - Overwhelm of too many choices and technical complexity
 
 TARGET AUDIENCE:
-- Melbourne homeowners (primary)
+- Australian homeowners (primary — nationwide)
 - Families wanting safety and convenience
 - Environmentally conscious homeowners seeking energy savings
 - Property investors wanting to increase property value
@@ -53,7 +53,7 @@ TARGET AUDIENCE:
 BRAND TONE:
 - Professional yet approachable
 - Empowering and educational (not salesy)
-- Locally focused (Melbourne/Australia)
+- Nationally focused (Australia-wide — do NOT single out Melbourne unless directly relevant)
 - Tech-forward but jargon-free
 - Warm, helpful, trustworthy
 
@@ -89,7 +89,7 @@ TOPIC_TEMPLATES = [
         "topic": "Smart Garage Doors",
         "angles": [
             "Never wonder if you left the garage open again",
-            "Garage automation for busy Melbourne families",
+            "Garage automation for busy Australian families",
             "Integrating your garage with your whole smart home",
         ],
     },
@@ -98,7 +98,7 @@ TOPIC_TEMPLATES = [
         "topic": "Smart Irrigation",
         "angles": [
             "Save water and money with weather-responsive irrigation",
-            "Keeping Melbourne gardens thriving automatically",
+            "Keeping Australian gardens thriving automatically",
             "Smart irrigation – the eco-friendly upgrade your garden needs",
         ],
     },
@@ -108,7 +108,7 @@ TOPIC_TEMPLATES = [
         "angles": [
             "Come home to the perfect temperature every time",
             "How smart thermostats cut energy bills by up to 30%",
-            "Automated climate control for Melbourne's unpredictable weather",
+            "Automated climate control for Australia's unpredictable weather",
         ],
     },
     {
@@ -142,7 +142,7 @@ TOPIC_TEMPLATES = [
         "id": "energy_savings",
         "topic": "Energy Savings",
         "angles": [
-            "How Melbourne homeowners are cutting power bills by 30%",
+            "How Australian homeowners are cutting power bills by 30%",
             "Smart home energy saving tips for Australian summers",
             "Track and reduce your energy use with smart home tech",
         ],
@@ -151,7 +151,7 @@ TOPIC_TEMPLATES = [
         "id": "property_value",
         "topic": "Property Value",
         "angles": [
-            "How a smart home increases your Melbourne property value",
+            "How a smart home increases your Australian property value",
             "What buyers want in 2025 – smart home features that sell",
             "Smart home upgrades with the best ROI for sellers",
         ],
@@ -161,7 +161,7 @@ TOPIC_TEMPLATES = [
         "topic": "Getting Started",
         "angles": [
             "Where to begin your smart home journey (without overwhelm)",
-            "5 first smart home upgrades every Melbourne homeowner should make",
+            "5 first smart home upgrades every Australian homeowner should make",
             "How ConnectNest makes your smart home setup effortless",
         ],
     },
@@ -170,7 +170,7 @@ TOPIC_TEMPLATES = [
         "topic": "Retrofitting Existing Homes",
         "angles": [
             "You don't need to build new – smart homes for existing houses",
-            "How we transformed a 1980s Melbourne home into a smart home",
+            "How we transformed a 1980s Australian home into a smart home",
             "No renovation needed – retrofitting smart tech the right way",
         ],
     },
@@ -178,7 +178,7 @@ TOPIC_TEMPLATES = [
         "id": "family_safety",
         "topic": "Family Safety & Convenience",
         "angles": [
-            "Smart home features every Melbourne family needs in 2025",
+            "Smart home features every Australian family needs in 2025",
             "Keep your kids safe with smart home automation",
             "How smart homes give parents peace of mind",
         ],
@@ -206,7 +206,7 @@ TOPIC_TEMPLATES = [
         "topic": "Smart Home Trends in Australia",
         "angles": [
             "Australia's smart home market is booming – here's why",
-            "The smart home trends Melbourne homeowners are adopting in 2025",
+            "The smart home trends Australian homeowners are adopting in 2025",
             "What's next for smart home tech in Australia",
         ],
     },
@@ -233,7 +233,7 @@ TOPIC_TEMPLATES = [
         "topic": "Smart Home Automation Routines",
         "angles": [
             "Morning routines your smart home can run for you",
-            "Automations that save Melbourne homeowners time every day",
+            "Automations that save Australian homeowners time every day",
             "The best 'set and forget' smart home routines",
         ],
     },
@@ -241,7 +241,7 @@ TOPIC_TEMPLATES = [
         "id": "myths",
         "topic": "Smart Home Myths Debunked",
         "angles": [
-            "5 smart home myths Melbourne homeowners believe (busted)",
+            "5 smart home myths Australian homeowners believe (busted)",
             "'Smart homes are only for new builds' – myth busted",
             "Is smart home tech really complicated? The truth",
         ],

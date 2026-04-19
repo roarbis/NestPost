@@ -33,9 +33,9 @@ from image_client import (
 )
 from video_client import (
     generate_video, generate_video_prompts, search_stock_footage,
-    VIDEO_PROVIDERS, VIDEO_ASPECT_RATIOS,
+    VIDEO_PROVIDERS, VIDEO_ASPECT_RATIOS, ATLASCLOUD_MODELS, ATLASCLOUD_MODELS_SORTED,
     upload_video_to_r2, delete_video_from_r2, is_r2_configured,
-    concat_cta_video,
+    postprocess_video,
 )
 from contextlib import asynccontextmanager
 from starlette.middleware.gzip import GZipMiddleware
@@ -1124,8 +1124,18 @@ async def list_video_providers():
     return {"providers": VIDEO_PROVIDERS, "aspect_ratios": VIDEO_ASPECT_RATIOS}
 
 
+@app.get("/api/video/atlascloud-models")
+async def list_atlascloud_models():
+    """Return Atlas Cloud model configs sorted by cost for frontend model picker."""
+    return {"models": [
+        {"id": model_id, **cfg}
+        for model_id, cfg in ATLASCLOUD_MODELS_SORTED
+    ]}
+
+
 class VideoPromptRequest(BaseModel):
     content_id: int
+    model_id: str = ""
 
 
 @app.post("/api/video/suggest-prompts")
@@ -1148,6 +1158,7 @@ async def suggest_video_prompts(req: VideoPromptRequest):
             image_suggestion=row["image_suggestion"] or "",
             hook=row["hook"] or "",
             api_key=gemini_key,
+            model_id=req.model_id,
         )
         return {"prompts": prompts, "content_id": req.content_id}
     except Exception as e:
@@ -1163,6 +1174,9 @@ class GenerateVideoRequest(BaseModel):
     use_paid: bool = False
     append_cta: bool = True
     negative_prompt: str = ""
+    resolution: str = ""
+    generate_audio: bool = False
+    model_id: str = ""  # Atlas Cloud specific model ID
     idempotency_key: Optional[str] = None
 
 
@@ -1190,7 +1204,7 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
         "luma": get_setting("luma_api_key", ""),
         "fal": get_setting("fal_api_key", ""),
         "atlascloud": get_setting("atlascloud_api_key", ""),
-        "atlascloud_video_model": get_setting("atlascloud_video_model", "kwaivgi/kling-v3.0-pro/text-to-video"),
+        "atlascloud_video_model": req.model_id or get_setting("atlascloud_video_model", "kwaivgi/kling-v3.0-pro/text-to-video"),
     }
 
     try:
@@ -1201,6 +1215,8 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
             aspect_ratio=req.aspect_ratio,
             duration=req.duration,
             negative_prompt=req.negative_prompt,
+            resolution=req.resolution,
+            generate_audio=req.generate_audio,
         )
 
         if result.get("status") == "rate_limited":
@@ -1212,31 +1228,111 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
         video_b64 = result["video_base64"]
         mime_type = result.get("mime_type", "video/mp4")
 
-        # Append CTA clip if configured and requested
-        cta_url = get_setting("cta_video_url", "") if req.append_cta else ""
-        cta_b64 = get_setting("cta_video_b64", "") if req.append_cta else ""
-        if cta_url and not cta_b64:
-            # Fetch CTA from R2
-            try:
-                import httpx as _httpx
-                async with _httpx.AsyncClient(timeout=30.0) as _cl:
-                    _r = await _cl.get(cta_url)
-                    _r.raise_for_status()
-                    import base64 as _b64
-                    cta_b64 = _b64.b64encode(_r.content).decode()
-            except Exception as e:
-                print(f"[CTA fetch failed, skipping concat] {e}")
-                cta_b64 = ""
+        # ── Post-processing pipeline: CTA concat + logo overlay (single pass) ──
+        # Memory-efficient: write Atlas Cloud output to disk immediately, free
+        # the base64 string, then do CTA+logo in one ffmpeg invocation on files.
+        # Render's 512MB instance was OOM'ing on the old b64-in-memory pipeline.
+        import base64 as _b64mod
+        import gc as _gc
+        import os as _os
+        import shutil as _shutil
+        import tempfile as _tf
 
-        if cta_b64:
+        print(f"[video-postprocess] append_cta_requested={req.append_cta} provider={req.provider} model={req.model_id}")
+
+        tmp_dir = _tf.mkdtemp(prefix="nestpost_video_")
+        main_path = _os.path.join(tmp_dir, "main.mp4")
+        cta_path  = _os.path.join(tmp_dir, "cta.mp4")
+        logo_path = _os.path.join(tmp_dir, "logo.png")
+        out_path  = _os.path.join(tmp_dir, "out.mp4")
+
+        try:
+            # Write the Atlas Cloud video to disk, then drop the big b64 string
+            with open(main_path, "wb") as _f:
+                _f.write(_b64mod.b64decode(video_b64))
+            print(f"[video-postprocess] main written to disk ({_os.path.getsize(main_path)}B)")
+            video_b64 = None  # free the big string
+            del result["video_base64"]
+            _gc.collect()
+
+            # ── CTA: resolve settings → write to disk ──
+            cta_file_ok = False
+            if req.append_cta:
+                cta_url = get_setting("cta_video_url", "") or ""
+                cta_b64_setting = get_setting("cta_video_b64", "") or ""
+                print(f"[video-postprocess] cta_url_set={bool(cta_url)} cta_b64_set={bool(cta_b64_setting)}")
+
+                if cta_b64_setting:
+                    try:
+                        with open(cta_path, "wb") as _f:
+                            _f.write(_b64mod.b64decode(cta_b64_setting))
+                        cta_b64_setting = None
+                        cta_file_ok = True
+                        print(f"[video-postprocess] CTA (from b64 setting) written ({_os.path.getsize(cta_path)}B)")
+                    except Exception as e:
+                        print(f"[video-postprocess] CTA b64 decode FAILED: {e}")
+                elif cta_url:
+                    try:
+                        import httpx as _httpx
+                        async with _httpx.AsyncClient(timeout=60.0) as _cl:
+                            async with _cl.stream("GET", cta_url) as _r:
+                                _r.raise_for_status()
+                                with open(cta_path, "wb") as _f:
+                                    async for chunk in _r.aiter_bytes(chunk_size=65536):
+                                        _f.write(chunk)
+                        cta_file_ok = True
+                        print(f"[video-postprocess] CTA streamed from R2 ({_os.path.getsize(cta_path)}B)")
+                    except Exception as e:
+                        print(f"[video-postprocess] CTA fetch FAILED: {e}")
+                else:
+                    print(f"[video-postprocess] CTA skipped — no cta_video_url or cta_video_b64 set")
+            else:
+                print(f"[video-postprocess] CTA skipped — append_cta=False on request")
+
+            # ── Logo: resolve brand_logo_b64 setting → write to disk ──
+            logo_file_ok = False
+            logo_setting = get_setting("brand_logo_b64", "") or ""
+            if logo_setting:
+                try:
+                    # Strip data URL prefix if present
+                    if "," in logo_setting[:64] and logo_setting.lstrip().startswith("data:"):
+                        logo_setting = logo_setting.split(",", 1)[1]
+                    with open(logo_path, "wb") as _f:
+                        _f.write(_b64mod.b64decode(logo_setting))
+                    logo_setting = None
+                    logo_file_ok = True
+                    print(f"[video-postprocess] logo written ({_os.path.getsize(logo_path)}B)")
+                except Exception as e:
+                    print(f"[video-postprocess] logo decode FAILED: {e}")
+            else:
+                print(f"[video-postprocess] logo skipped — brand_logo_b64 not set")
+            _gc.collect()
+
+            # ── Single ffmpeg pass ──
             try:
-                video_b64 = concat_cta_video(video_b64, cta_b64, mime_type)
+                postprocess_video(
+                    main_path=main_path,
+                    out_path=out_path,
+                    cta_path=cta_path if cta_file_ok else None,
+                    logo_path=logo_path if logo_file_ok else None,
+                )
+                final_source = out_path
+                print(f"[video-postprocess] postprocess OK ({_os.path.getsize(out_path)}B)")
             except Exception as e:
-                print(f"[CTA concat failed, returning raw video] {e}")
+                print(f"[video-postprocess] postprocess FAILED, returning raw main: {e}")
+                final_source = main_path
+
+            # ── Encode final video to b64 for HTTP response ──
+            with open(final_source, "rb") as _f:
+                final_b64 = _b64mod.b64encode(_f.read()).decode()
+            print(f"[video-postprocess] final b64 length={len(final_b64)}")
+        finally:
+            _shutil.rmtree(tmp_dir, ignore_errors=True)
+            _gc.collect()
 
         video_result = {
             "status": "complete",
-            "video_base64": video_b64,
+            "video_base64": final_b64,
             "mime_type": mime_type,
             "provider": req.provider,
             "prompt": req.prompt,
@@ -1267,13 +1363,17 @@ async def save_video(req: SaveVideoRequest):
         conn.close()
         raise HTTPException(status_code=404, detail="Content not found")
 
+    # CTA concat + logo overlay already applied at generation time (see
+    # /api/video/generate). video_base64 received here already has both burned in.
+    video_b64 = req.video_base64
+
     r2_config = _get_r2_config()
     storage_mode = "r2" if is_r2_configured(r2_config) else "blob"
 
     if storage_mode == "r2":
         try:
             video_url = upload_video_to_r2(
-                video_base64=req.video_base64,
+                video_base64=video_b64,
                 content_id=req.content_id,
                 mime_type=req.mime_type,
                 account_id=r2_config["account_id"],
@@ -1301,7 +1401,7 @@ async def save_video(req: SaveVideoRequest):
     video_path = f"/api/content/{req.content_id}/video-file"
     conn.execute(
         "UPDATE content SET video_path = ?, video_prompt = ?, video_data = ?, video_mime = ? WHERE id = ?",
-        (video_path, req.video_prompt, req.video_base64, req.mime_type, req.content_id),
+        (video_path, req.video_prompt, video_b64, req.mime_type, req.content_id),
     )
     conn.commit()
     updated = conn.execute(f"SELECT {CONTENT_COLS} FROM content WHERE id = ?", (req.content_id,)).fetchone()
