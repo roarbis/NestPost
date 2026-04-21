@@ -184,15 +184,37 @@ ATLASCLOUD_MODELS = {
 ATLASCLOUD_MODELS_SORTED = sorted(ATLASCLOUD_MODELS.items(), key=lambda x: x[1]["cost_per_sec"])
 
 
-# ── Video prompt generation (uses Gemini to create 3 style variants) ──────────
+# ── Video prompt generation — multi-provider with auto-fallback ───────────────
+# Provider try-order. The caller passes a preferred_provider; the remaining
+# configured providers are tried in this order if the first one fails.
+_VIDEO_PROMPT_PROVIDER_ORDER = ["gemini", "groq", "deepseek", "qwen"]
+
+
+async def _call_text_provider_for_video(
+    provider: str, system: str, user: str, api_keys: dict
+) -> str:
+    """Route a text-generation call to the named provider.
+    Raises ValueError if key is missing; re-raises any HTTP/parse errors."""
+    from ai_client import call_gemini, call_groq, call_deepseek, call_qwen
+    if provider == "gemini":
+        return await call_gemini(system, user, api_keys.get("gemini", ""))
+    if provider == "groq":
+        return await call_groq(system, user, api_keys.get("groq", ""))
+    if provider == "deepseek":
+        return await call_deepseek(system, user, api_keys.get("deepseek", ""))
+    if provider == "qwen":
+        return await call_qwen(system, user, api_keys.get("qwen", ""))
+    raise ValueError(f"Unknown AI provider: {provider}")
+
 
 async def generate_video_prompts(
     caption: str,
     platform: str,
     image_suggestion: str,
     hook: str,
-    api_key: str,
+    api_keys: dict,
     model_id: str = "",
+    preferred_provider: str = "gemini",
 ) -> list[dict]:
     """Generate 3 video prompt variants (cinematic, dynamic, minimal) from post content.
     When model_id is provided, tailors prompts to that model's capabilities.
@@ -338,26 +360,36 @@ async def generate_video_prompts(
         "Write three detailed cinematography briefs for this post:"
     )
 
-    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
-    payload = {
-        "contents": [{"parts": [{"text": f"{system}\n\n{user_prompt}"}]}],
-        "generationConfig": {"temperature": 0.85, "maxOutputTokens": 4096},
-    }
+    # Build provider chain: preferred first, then remaining configured providers
+    chain = [preferred_provider] + [
+        p for p in _VIDEO_PROMPT_PROVIDER_ORDER
+        if p != preferred_provider and api_keys.get(p)
+    ]
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(f"{url}?key={api_key}", json=payload)
-        resp.raise_for_status()
-        text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+    last_error: Exception = RuntimeError("No AI provider available — add at least one API key in Settings")
+    for provider in chain:
+        if not api_keys.get(provider):
+            continue  # key not configured, skip silently
+        try:
+            print(f"[video-prompts] trying provider={provider}")
+            raw = await _call_text_provider_for_video(provider, system, user_prompt, api_keys)
 
-    # Parse JSON from response (strip markdown fences if present)
-    text = text.strip()
-    if text.startswith("```"):
-        # strip ```json or ``` opener
-        text = re.sub(r"^```[a-z]*\n?", "", text)
-        text = re.sub(r"```$", "", text).strip()
+            # Strip markdown fences if model wrapped response in ```json ... ```
+            text = raw.strip()
+            if text.startswith("```"):
+                text = re.sub(r"^```[a-z]*\n?", "", text)
+                text = re.sub(r"```$", "", text).strip()
 
-    prompts = json.loads(text)
-    return prompts
+            prompts = json.loads(text)
+            print(f"[video-prompts] success via {provider} ({len(prompts)} prompts)")
+            return prompts
+
+        except Exception as e:
+            print(f"[video-prompts] {provider} failed: {e} — trying next in chain")
+            last_error = e
+            continue
+
+    raise last_error
 
 
 # ── Stock Footage Search (Pexels API — free) ─────────────────────────────────

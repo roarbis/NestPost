@@ -1136,20 +1136,42 @@ async def list_atlascloud_models():
 class VideoPromptRequest(BaseModel):
     content_id: int
     model_id: str = ""
+    preferred_provider: str = "gemini"  # which AI to try first; auto-falls back to others
+
+
+@app.get("/api/ai-providers/text")
+async def get_text_ai_providers():
+    """Return which text AI providers have an API key configured.
+    Used by the frontend to populate the provider selector dropdowns."""
+    return {
+        "gemini":   bool(get_setting("gemini_api_key",   "")),
+        "groq":     bool(get_setting("groq_api_key",     "")),
+        "deepseek": bool(get_setting("deepseek_api_key", "")),
+        "qwen":     bool(get_setting("qwen_api_key",     "")),
+    }
 
 
 @app.post("/api/video/suggest-prompts")
 async def suggest_video_prompts(req: VideoPromptRequest):
-    """Generate 3 video prompt variants (cinematic, dynamic, minimal) for a content item."""
+    """Generate 3 video prompt variants (cinematic, dynamic, minimal) for a content item.
+    Tries req.preferred_provider first, then auto-falls back to any other configured provider."""
     conn = get_conn()
     row = conn.execute(f"SELECT {CONTENT_COLS} FROM content WHERE id = ?", (req.content_id,)).fetchone()
     conn.close()
     if not row:
         raise HTTPException(status_code=404, detail="Content not found")
 
-    gemini_key = get_setting("gemini_api_key", "")
-    if not gemini_key:
-        raise HTTPException(status_code=400, detail="Gemini API key required for video prompt generation")
+    api_keys = {
+        "gemini":   get_setting("gemini_api_key",   ""),
+        "groq":     get_setting("groq_api_key",     ""),
+        "deepseek": get_setting("deepseek_api_key", ""),
+        "qwen":     get_setting("qwen_api_key",     ""),
+    }
+    if not any(api_keys[p] for p in ["gemini", "groq", "deepseek", "qwen"]):
+        raise HTTPException(
+            status_code=400,
+            detail="No AI provider API key configured — add at least one in Settings",
+        )
 
     try:
         prompts = await generate_video_prompts(
@@ -1157,10 +1179,11 @@ async def suggest_video_prompts(req: VideoPromptRequest):
             platform=row["platform"] or "instagram",
             image_suggestion=row["image_suggestion"] or "",
             hook=row["hook"] or "",
-            api_key=gemini_key,
+            api_keys=api_keys,
             model_id=req.model_id,
+            preferred_provider=req.preferred_provider,
         )
-        return {"prompts": prompts, "content_id": req.content_id}
+        return {"prompts": prompts, "content_id": req.content_id, "provider_used": req.preferred_provider}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Video prompt generation failed: {str(e)}")
 
