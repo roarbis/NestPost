@@ -187,7 +187,7 @@ ATLASCLOUD_MODELS_SORTED = sorted(ATLASCLOUD_MODELS.items(), key=lambda x: x[1][
 # ── Video prompt generation — multi-provider with auto-fallback ───────────────
 # Provider try-order. The caller passes a preferred_provider; the remaining
 # configured providers are tried in this order if the first one fails.
-_VIDEO_PROMPT_PROVIDER_ORDER = ["gemini", "atlascloud", "groq", "deepseek", "qwen"]
+_VIDEO_PROMPT_PROVIDER_ORDER = ["gemini", "groq", "deepseek", "qwen"]
 
 
 async def _call_text_provider_for_video(
@@ -195,19 +195,13 @@ async def _call_text_provider_for_video(
 ) -> str:
     """Route a text-generation call to the named provider.
     Raises ValueError if key is missing; re-raises any HTTP/parse errors."""
-    from ai_client import call_gemini, call_groq, call_deepseek, call_atlascloud, call_qwen
+    from ai_client import call_gemini, call_groq, call_deepseek, call_qwen
     if provider == "gemini":
         return await call_gemini(system, user, api_keys.get("gemini", ""))
     if provider == "groq":
         return await call_groq(system, user, api_keys.get("groq", ""))
     if provider == "deepseek":
         return await call_deepseek(system, user, api_keys.get("deepseek", ""))
-    if provider == "atlascloud":
-        return await call_atlascloud(
-            system, user,
-            api_keys.get("atlascloud", ""),
-            api_keys.get("atlascloud_model", "deepseek-v3"),
-        )
     if provider == "qwen":
         return await call_qwen(system, user, api_keys.get("qwen", ""))
     raise ValueError(f"Unknown AI provider: {provider}")

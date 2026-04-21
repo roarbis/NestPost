@@ -1144,11 +1144,10 @@ async def get_text_ai_providers():
     """Return which text AI providers have an API key configured.
     Used by the frontend to populate the provider selector dropdowns."""
     return {
-        "gemini":     bool(get_setting("gemini_api_key",     "")),
-        "groq":       bool(get_setting("groq_api_key",       "")),
-        "deepseek":   bool(get_setting("deepseek_api_key",   "")),
-        "atlascloud": bool(get_setting("atlascloud_api_key", "")),
-        "qwen":       bool(get_setting("qwen_api_key",       "")),
+        "gemini":   bool(get_setting("gemini_api_key",   "")),
+        "groq":     bool(get_setting("groq_api_key",     "")),
+        "deepseek": bool(get_setting("deepseek_api_key", "")),
+        "qwen":     bool(get_setting("qwen_api_key",     "")),
     }
 
 
@@ -1163,14 +1162,12 @@ async def suggest_video_prompts(req: VideoPromptRequest):
         raise HTTPException(status_code=404, detail="Content not found")
 
     api_keys = {
-        "gemini":         get_setting("gemini_api_key",     ""),
-        "groq":           get_setting("groq_api_key",       ""),
-        "deepseek":       get_setting("deepseek_api_key",   ""),
-        "atlascloud":     get_setting("atlascloud_api_key", ""),
-        "atlascloud_model": get_setting("atlascloud_model", "deepseek-v3"),
-        "qwen":           get_setting("qwen_api_key",       ""),
+        "gemini":   get_setting("gemini_api_key",   ""),
+        "groq":     get_setting("groq_api_key",     ""),
+        "deepseek": get_setting("deepseek_api_key", ""),
+        "qwen":     get_setting("qwen_api_key",     ""),
     }
-    if not any(api_keys[p] for p in ["gemini", "groq", "deepseek", "atlascloud", "qwen"]):
+    if not any(api_keys[p] for p in ["gemini", "groq", "deepseek", "qwen"]):
         raise HTTPException(
             status_code=400,
             detail="No AI provider API key configured — add at least one in Settings",

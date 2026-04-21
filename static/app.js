@@ -1472,8 +1472,8 @@ async function loadVideoPromptProviders() {
   if (!sel) return;
   try {
     const data = await api('/api/ai-providers/text', 'GET');
-    const labels = { gemini: 'Gemini', groq: 'Groq', deepseek: 'DeepSeek', atlascloud: 'Atlas Cloud', qwen: 'Qwen' };
-    const order = ['gemini', 'atlascloud', 'groq', 'deepseek', 'qwen'];
+    const labels = { gemini: 'Gemini', groq: 'Groq', deepseek: 'DeepSeek', qwen: 'Qwen' };
+    const order = ['gemini', 'groq', 'deepseek', 'qwen'];
     sel.innerHTML = '';
     order.forEach(p => {
       const opt = document.createElement('option');
@@ -1561,7 +1561,7 @@ async function suggestVideoPrompts() {
 
     document.getElementById('modal-video-suggestions').style.display = '';
     const usedProvider = data.provider_used || preferredProvider;
-    const providerLabels = { gemini: 'Gemini', groq: 'Groq', deepseek: 'DeepSeek', atlascloud: 'Atlas Cloud', qwen: 'Qwen' };
+    const providerLabels = { gemini: 'Gemini', groq: 'Groq', deepseek: 'DeepSeek', qwen: 'Qwen' };
     showToast(`3 prompts ready (via ${providerLabels[usedProvider] || usedProvider}) — click one to use it`, 'success');
   } catch (err) {
     showToast(err.message, 'error');
