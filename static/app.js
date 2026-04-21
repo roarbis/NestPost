@@ -1462,12 +1462,50 @@ function selectAtlasModel(modelId) {
   }
 }
 
+// Populate the "Generate with" provider selector on screen 2.
+// Called once when the video section first loads (lazy, cached).
+let _videoPromptProvidersLoaded = false;
+async function loadVideoPromptProviders() {
+  if (_videoPromptProvidersLoaded) return;
+  _videoPromptProvidersLoaded = true;
+  const sel = document.getElementById('modal-video-prompt-provider');
+  if (!sel) return;
+  try {
+    const data = await api('/api/ai-providers/text', 'GET');
+    const labels = { gemini: 'Gemini', groq: 'Groq', deepseek: 'DeepSeek', atlascloud: 'Atlas Cloud', qwen: 'Qwen' };
+    const order = ['gemini', 'atlascloud', 'groq', 'deepseek', 'qwen'];
+    sel.innerHTML = '';
+    order.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p;
+      opt.textContent = labels[p] + (data[p] ? '' : ' (not configured)');
+      opt.disabled = !data[p];
+      sel.appendChild(opt);
+    });
+    // Default to first configured provider
+    const first = order.find(p => data[p]);
+    if (first) sel.value = first;
+  } catch (e) {
+    console.warn('Could not load text providers:', e);
+  }
+}
+
+// Re-generate prompts with whatever provider is currently selected in the dropdown.
+function triggerVideoPromptSuggestions() {
+  document.getElementById('modal-video-suggestions').style.display = 'none';
+  suggestVideoPrompts();
+}
+
 async function suggestVideoPrompts() {
   if (!modalItemId) return;
+  // Ensure provider dropdown is populated
+  await loadVideoPromptProviders();
+
   const btn = document.getElementById('modal-video-suggest-btn');
   const loading = document.getElementById('modal-video-prompt-loading');
   const modelLabel = document.getElementById('modal-prompt-loading-model');
   const model = _atlascloudModels.find(m => m.id === _selectedAtlasModel);
+  const preferredProvider = document.getElementById('modal-video-prompt-provider')?.value || 'gemini';
 
   if (btn) { btn.style.display = 'none'; }
   if (loading) { loading.style.display = ''; }
@@ -1477,6 +1515,7 @@ async function suggestVideoPrompts() {
     const data = await api('/api/video/suggest-prompts', 'POST', {
       content_id: modalItemId,
       model_id: _selectedAtlasModel || '',
+      preferred_provider: preferredProvider,
     });
     const prompts = data.prompts || [];
     const container = document.getElementById('modal-video-prompt-cards');
@@ -1521,7 +1560,9 @@ async function suggestVideoPrompts() {
     });
 
     document.getElementById('modal-video-suggestions').style.display = '';
-    showToast('3 tailored prompts generated — click one to use it', 'success');
+    const usedProvider = data.provider_used || preferredProvider;
+    const providerLabels = { gemini: 'Gemini', groq: 'Groq', deepseek: 'DeepSeek', atlascloud: 'Atlas Cloud', qwen: 'Qwen' };
+    showToast(`3 prompts ready (via ${providerLabels[usedProvider] || usedProvider}) — click one to use it`, 'success');
   } catch (err) {
     showToast(err.message, 'error');
   } finally {
@@ -2311,7 +2352,7 @@ async function wizardAutoVideoPrompts(item) {
   vidSec.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
   try {
-    const data = await api('/api/video/suggest-prompts', 'POST', { content_id: item.id });
+    const data = await api('/api/video/suggest-prompts', 'POST', { content_id: item.id, preferred_provider: 'gemini' });
     const prompts = data.prompts || [];
 
     if (vidLoad) vidLoad.style.display = 'none';
