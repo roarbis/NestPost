@@ -83,6 +83,10 @@ async function loadHealth() {
       // Populate wizard video provider cards
       _buildWizardVideoProviderCards(data.video);
     }
+    if (data.image) {
+      // Populate wizard image provider cards
+      _buildWizardImageProviderCards(data.image);
+    }
   } catch { /* silent */ }
 }
 
@@ -149,14 +153,84 @@ function _buildWizardVideoProviderCards(videoData) {
     wizardState.videoProvider = providerIdMap[autoKey] || autoKey;
     const autoCard = cards[autoKey];
     if (autoCard) { autoCard.style.borderColor = '#6366f1'; autoCard.style.background = 'rgba(99,102,241,0.15)'; }
-    // If atlas cloud auto-selected, show model sub-picker and render cards now (may already have models loaded)
-    if (autoKey === 'atlascloud_video') {
+    // If atlas cloud auto-selected AND user has already picked video intent, show model sub-picker
+    if (autoKey === 'atlascloud_video' && wizardState.intent === 'video') {
       const acRow = document.getElementById('wizard-atlascloud-model-row');
       if (acRow) acRow.style.display = '';
       // Render now; if models not loaded yet, loadAtlasCloudModels will re-render on completion
       renderWizardAtlasModelCards();
     }
   }
+}
+
+// Build image provider pill-cards for the wizard
+function _buildWizardImageProviderCards(imageData) {
+  const container = document.getElementById('wizard-image-provider-cards');
+  if (!container) return;
+  container.innerHTML = '';
+
+  const providerMeta = {
+    imagen4:           { label: 'Imagen 4',        icon: '🖼️', note: 'Google — up to 4 images', free: true },
+    imagen4_fast:      { label: 'Imagen 4 Fast',   icon: '⚡', note: 'Google — faster, 4 images', free: true },
+    gemini_native:     { label: 'Nano Banana',      icon: '🍌', note: 'Gemini Flash — free tier', free: true },
+    gemini_native_paid:{ label: 'Nano Banana 2',    icon: '🍌', note: 'Gemini paid — 1 image', free: false },
+    stability:         { label: 'Stability AI',     icon: '🎨', note: 'SD3.5 — up to 4 images', free: false },
+    dalle:             { label: 'DALL-E 3',         icon: '🤖', note: 'OpenAI — 1 image', free: false },
+  };
+  const displayOrder = ['imagen4', 'imagen4_fast', 'gemini_native', 'gemini_native_paid', 'stability', 'dalle'];
+
+  const enabledKeys = new Set();
+  const cards = {};
+
+  displayOrder.forEach(key => {
+    const info = imageData[key];
+    if (!info) return;
+    const meta = providerMeta[key] || { label: key, icon: '🖼️', note: '', free: false };
+    const ready = info.online === true;
+    const noKey = info.online === null || info.online === undefined;
+    if (ready) enabledKeys.add(key);
+
+    let statusDot, statusLabel;
+    if (ready) {
+      statusDot = '#4ade80'; statusLabel = '● Ready';
+    } else if (noKey) {
+      statusDot = '#fbbf24'; statusLabel = meta.free ? '● No key' : '● Paid — no key';
+    } else {
+      statusDot = '#ef4444'; statusLabel = '● Offline';
+    }
+
+    const card = document.createElement('div');
+    card.id = `wip-${key}`;
+    card.dataset.provider = key;
+    card.style.cssText = `padding:10px 16px;border-radius:10px;border:2px solid ${ready ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.05)'};background:${ready ? 'rgba(15,23,42,0.4)' : 'rgba(15,23,42,0.2)'};cursor:${ready ? 'pointer' : 'not-allowed'};transition:all 0.15s;opacity:${ready ? '1' : '0.45'};min-width:110px;`;
+    card.innerHTML = `
+      <div style="font-size:1.1rem;margin-bottom:4px;">${meta.icon}</div>
+      <div style="font-weight:700;font-size:0.8rem;color:${ready ? '#f1f5f9' : '#475569'};">${meta.label}</div>
+      <div style="font-size:0.68rem;color:${statusDot};margin-top:2px;">${statusLabel}</div>
+      <div style="font-size:0.65rem;color:#64748b;margin-top:1px;">${meta.note}</div>
+    `;
+    if (ready) card.onclick = () => setWizardImageProvider(key, card);
+    container.appendChild(card);
+    cards[key] = card;
+  });
+
+  // Auto-select best available provider
+  const autoKey = displayOrder.find(k => enabledKeys.has(k));
+  if (autoKey) {
+    wizardState.imageProvider = autoKey;
+    const autoCard = cards[autoKey];
+    if (autoCard) { autoCard.style.borderColor = '#6366f1'; autoCard.style.background = 'rgba(99,102,241,0.15)'; }
+  }
+}
+
+function setWizardImageProvider(provider, card) {
+  wizardState.imageProvider = provider;
+  document.querySelectorAll('#wizard-image-provider-cards > div').forEach(c => {
+    c.style.borderColor = 'rgba(255,255,255,0.12)';
+    c.style.background  = 'rgba(15,23,42,0.4)';
+  });
+  card.style.borderColor = '#6366f1';
+  card.style.background  = 'rgba(99,102,241,0.15)';
 }
 
 function setWizardVideoProvider(provider, card) {
@@ -660,6 +734,16 @@ async function openModal(id) {
     }
     renderAtlasModelCards();
     if (_selectedAtlasModel) selectAtlasModel(_selectedAtlasModel);
+
+    // Pre-select image provider from wizard
+    if (wizardState.imageProvider) {
+      const imgProvSel = document.getElementById('modal-image-provider');
+      if (imgProvSel) {
+        imgProvSel.value = wizardState.imageProvider;
+        updateImageModelInfo();
+      }
+      wizardState.imageProvider = null; // consume it
+    }
     const paramsEl = document.getElementById('modal-video-params');
     if (paramsEl) paramsEl.style.display = 'none';
     document.getElementById('modal-video-suggestions').style.display = 'none';
@@ -1875,7 +1959,7 @@ async function logoutUser() {
 
 // ── V3 Content Creation Wizard ────────────────────────────────────────────────
 
-let wizardState = { intent: null, duration: 10, topicMode: 'auto', selectedTopicId: null, videoProvider: null, atlascloudModel: null };
+let wizardState = { intent: null, duration: 10, topicMode: 'auto', selectedTopicId: null, videoProvider: null, atlascloudModel: null, imageProvider: null };
 let _wizardTopicsPopulated = false;
 let _wizardCurrentContentId = null;
 let _wizardGeneratedImages = [];
@@ -1931,6 +2015,14 @@ function setWizardIntent(intent) {
 
   const vidProvRow = document.getElementById('wizard-video-provider-row');
   if (vidProvRow) vidProvRow.style.display = intent === 'video' ? '' : 'none';
+
+  // Atlas Cloud model sub-row: hide when switching intent (re-shown by setWizardVideoProvider if needed)
+  const acRow = document.getElementById('wizard-atlascloud-model-row');
+  if (acRow) acRow.style.display = intent === 'video' && wizardState.videoProvider === 'atlascloud_video' ? '' : 'none';
+
+  // Image provider row: show for image intent, hide for video
+  const imgProvRow = document.getElementById('wizard-image-provider-row');
+  if (imgProvRow) imgProvRow.style.display = intent === 'image' ? '' : 'none';
 
   const aiLabel = document.getElementById('wizard-ai-label');
   if (aiLabel) aiLabel.textContent = intent === 'video' ? 'Caption AI Engine' : 'AI Engine';
@@ -2504,7 +2596,7 @@ async function wizardGenerateVideo() {
 
 function resetWizard() {
   // Reset state
-  wizardState = { intent: null, duration: 10, topicMode: 'auto', selectedTopicId: null, videoProvider: null, atlascloudModel: null };
+  wizardState = { intent: null, duration: 10, topicMode: 'auto', selectedTopicId: null, videoProvider: null, atlascloudModel: null, imageProvider: null };
   _wizardCurrentContentId = null;
   _wizardGeneratedImages  = [];
 

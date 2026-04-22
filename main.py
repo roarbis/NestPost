@@ -507,6 +507,7 @@ async def provider_status():
         },
         "image": {
             "imagen4": {"online": status_val(results[2]), "label": "Imagen 4"},
+            "imagen4_fast": {"online": status_val(results[2]), "label": "Imagen 4 Fast"},
             "gemini_native": {"online": status_val(results[2]), "label": "Nano Banana"},
             "gemini_native_paid": {"online": status_val(results[6]), "label": "Nano Banana 2"},
             "stability": {"online": status_val(results[7]), "label": "Stability AI"},
