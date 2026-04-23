@@ -1286,7 +1286,7 @@ async function generateImages() {
 
   const provider = document.getElementById('modal-image-provider')?.value || 'imagen4';
   const aspectRatio = document.getElementById('modal-aspect-ratio')?.value || '1:1';
-  const maxImages = { imagen4: 4, imagen4_fast: 4, gemini_native: 1, gemini_native_paid: 1, stability: 4, dalle: 1 };
+  const maxImages = { imagen4: 4, imagen4_fast: 4, gemini_native: 1, gemini_native_paid: 1, stability: 4, dalle: 1, flux_schnell: 4, flux_dev: 4 };
   const numImages = maxImages[provider] || 4;
 
   const btn = document.getElementById('modal-gen-image-btn');
@@ -2610,10 +2610,22 @@ function resetWizard() {
   if (imgCard) { imgCard.style.borderColor = 'rgba(255,255,255,0.1)'; imgCard.style.background = 'rgba(15,23,42,0.4)'; }
   if (vidCard) { vidCard.style.borderColor = 'rgba(255,255,255,0.1)'; vidCard.style.background = 'rgba(15,23,42,0.4)'; }
 
-  // Reset duration row
+  // Reset all intent-dependent rows (hidden until intent is chosen)
   const durRow = document.getElementById('wizard-duration-row');
   if (durRow) durRow.style.display = 'none';
+  const vidProvRow = document.getElementById('wizard-video-provider-row');
+  if (vidProvRow) vidProvRow.style.display = 'none';
+  const acModelRow = document.getElementById('wizard-atlascloud-model-row');
+  if (acModelRow) acModelRow.style.display = 'none';
+  const imgProvRow = document.getElementById('wizard-image-provider-row');
+  if (imgProvRow) imgProvRow.style.display = 'none';
   setWizardDuration(10);
+
+  // Restore imageProvider state from the visually auto-selected card
+  // (cards are built once in loadHealth; the auto-selected one keeps its purple border)
+  const selectedImgCard = Array.from(document.querySelectorAll('#wizard-image-provider-cards > div'))
+    .find(c => c.style.borderColor === 'rgb(99, 102, 241)' || c.style.borderColor === '#6366f1');
+  if (selectedImgCard) wizardState.imageProvider = selectedImgCard.dataset.provider;
 
   // Reset platform (Instagram pre-selected)
   const cards = document.querySelectorAll('#wizard-platform-cards .plat-card');
