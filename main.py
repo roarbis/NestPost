@@ -37,6 +37,7 @@ from video_client import (
     upload_video_to_r2, delete_video_from_r2, is_r2_configured,
     postprocess_video,
 )
+import news_service
 from contextlib import asynccontextmanager
 from starlette.middleware.gzip import GZipMiddleware
 
@@ -566,6 +567,7 @@ class GenerateRequest(BaseModel):
     variant_mode: str = "auto"              # "auto" | "pick" | "multi"
     post_format: Optional[str] = None       # used when variant_mode == "pick"
     emoji_density: str = "balanced"         # "heavy" | "balanced" | "light" | "none"
+    news_seed: Optional[dict] = None        # {title, summary, url, source} from news feature
 
 
 def _next_auto_format() -> str:
@@ -651,6 +653,9 @@ async def generate(req: GenerateRequest):
         "atlascloud_model": get_setting("atlascloud_model", "deepseek-v3"),
     }
 
+    # Brand writeup — custom brand context for prompt (falls back to built-in CONNECTNEST_PROFILE if empty)
+    brand_writeup = get_setting("brand_writeup", "")
+
     # Resolve topic
     if req.mode == "quick" or not req.topic_id:
         recent = get_recent_topics(20)
@@ -698,6 +703,8 @@ async def generate(req: GenerateRequest):
                     api_keys=api_keys,
                     post_format=post_format,
                     emoji_density=emoji_density,
+                    news_seed=req.news_seed,
+                    brand_writeup=brand_writeup,
                 )
 
                 # Save to DB
@@ -940,11 +947,39 @@ async def refine_prompt(req: RefinePromptRequest):
             caption=row["caption"] or "",
             platform=row["platform"] or "instagram",
             api_key=gemini_key,
+            groq_key=get_setting("groq_api_key", ""),
+            qwen_key=get_setting("qwen_api_key", ""),
         )
         return {"prompt": refined}
     except Exception as e:
-        # Fall back to raw suggestion on error
-        return {"prompt": row["image_suggestion"] or "A modern smart home interior with connected devices"}
+        raise HTTPException(status_code=500, detail=f"Image prompt refinement failed: {str(e)}")
+
+
+@app.get("/api/news-feed")
+async def get_news_feed(category: str = "", limit: int = 12, refresh: bool = False):
+    """Return latest smart-home news articles from curated RSS feeds."""
+    custom = get_setting("custom_news_feeds", "")
+    articles = news_service.get_articles(
+        category=category or None,
+        custom_feeds_str=custom,
+        limit=limit,
+        force_refresh=refresh,
+    )
+    return {"articles": articles, "count": len(articles)}
+
+
+class FetchArticleRequest(BaseModel):
+    url: str
+
+
+@app.post("/api/fetch-article-url")
+async def fetch_article(req: FetchArticleRequest):
+    """Fetch an article URL and extract title + description as a news seed."""
+    try:
+        result = await news_service.fetch_article_url(req.url)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
 
 class GenerateImageRequest(BaseModel):
@@ -1682,6 +1717,8 @@ SETTINGS_KEYS = [
     "r2_public_url",
     # Video retention
     "video_retention_days",
+    "custom_news_feeds",
+    "brand_writeup",
 ]
 
 

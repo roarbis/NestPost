@@ -615,25 +615,90 @@
 
       <!-- Step 4: Topic -->
       <div style="margin-bottom:28px;">
-        <div class="lbl" style="margin-bottom:12px;">Topic</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
-          <div id="wizard-topic-auto"
-               onclick="setTopicMode('auto')"
-               style="border:2px solid #6366f1;border-radius:12px;padding:14px 16px;cursor:pointer;transition:all 0.2s;background:rgba(99,102,241,0.1);">
-            <div style="font-weight:700;font-size:0.875rem;color:#f1f5f9;margin-bottom:3px;">⚡ Auto-pick for me</div>
-            <div style="font-size:0.775rem;color:#64748b;">AI rotates topics intelligently</div>
+        <div class="lbl" style="margin-bottom:4px;">Topic</div>
+        <div style="font-size:0.72rem;color:#475569;margin-bottom:12px;letter-spacing:0.01em;">What do you want to post about?</div>
+
+        <!-- Topic SOURCE selector (teal accent) -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:6px;">
+          <div id="wizard-topic-source-brand"
+               onclick="setTopicSource('brand')"
+               style="border:2px solid #14b8a6;border-radius:12px;padding:14px 16px;cursor:pointer;transition:all 0.2s;background:rgba(20,184,166,0.08);">
+            <div style="font-weight:700;font-size:0.875rem;color:#f1f5f9;margin-bottom:3px;">📋 Smart Home Topics</div>
+            <div style="font-size:0.775rem;color:#64748b;">AI-curated ConnectNest topics</div>
           </div>
-          <div id="wizard-topic-choose"
-               onclick="setTopicMode('choose')"
+          <div id="wizard-topic-source-news"
+               onclick="setTopicSource('news')"
                style="border:2px solid rgba(255,255,255,0.1);border-radius:12px;padding:14px 16px;cursor:pointer;transition:all 0.2s;background:rgba(15,23,42,0.3);">
-            <div style="font-weight:700;font-size:0.875rem;color:#f1f5f9;margin-bottom:3px;">📋 Choose a topic</div>
-            <div style="font-size:0.775rem;color:#64748b;">Pick from templates or write your own</div>
+            <div style="font-weight:700;font-size:0.875rem;color:#f1f5f9;margin-bottom:3px;">📰 Latest Smart Home News</div>
+            <div style="font-size:0.775rem;color:#64748b;">Post based on real news articles</div>
           </div>
         </div>
-        <div id="wizard-topic-chooser" style="display:none;">
-          <div id="wizard-topic-grid" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;"></div>
-          <input id="wizard-custom-topic" class="inp" type="text" placeholder="Or type a custom topic or angle…" style="margin-top:4px;" oninput="updateWizardGenBtn()" />
+
+        <!-- Brand Topics branch (indented sub-section, purple accent) -->
+        <div id="wizard-topic-brand-section" style="border-left:2px solid rgba(99,102,241,0.25);margin-left:6px;padding-left:12px;margin-top:10px;">
+          <div style="font-size:0.7rem;color:#6366f1;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px;">Sub-Topic</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
+            <div id="wizard-topic-auto"
+                 onclick="setTopicMode('auto')"
+                 style="border:2px solid #6366f1;border-radius:12px;padding:14px 16px;cursor:pointer;transition:all 0.2s;background:rgba(99,102,241,0.1);">
+              <div style="font-weight:700;font-size:0.875rem;color:#f1f5f9;margin-bottom:3px;">⚡ Auto-pick for me</div>
+              <div style="font-size:0.775rem;color:#64748b;">AI rotates topics intelligently</div>
+            </div>
+            <div id="wizard-topic-choose"
+                 onclick="setTopicMode('choose')"
+                 style="border:2px solid rgba(255,255,255,0.1);border-radius:12px;padding:14px 16px;cursor:pointer;transition:all 0.2s;background:rgba(15,23,42,0.3);">
+              <div style="font-weight:700;font-size:0.875rem;color:#f1f5f9;margin-bottom:3px;">📋 Choose a topic</div>
+              <div style="font-size:0.775rem;color:#64748b;">Pick from templates or write your own</div>
+            </div>
+          </div>
+          <div id="wizard-topic-chooser" style="display:none;">
+            <div id="wizard-topic-grid" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;"></div>
+            <input id="wizard-custom-topic" class="inp" type="text" placeholder="Or type a custom topic or angle…" style="margin-top:4px;" oninput="updateWizardGenBtn()" />
+          </div>
         </div>
+
+        <!-- News branch (hidden by default) -->
+        <div id="wizard-topic-news-section" style="display:none;">
+          <!-- Category filter pills -->
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;">
+            <button id="news-cat-all"        onclick="setNewsCategory('all')"        style="padding:5px 14px;border-radius:99px;border:1px solid #6366f1;background:rgba(99,102,241,0.15);color:#a5b4fc;font-size:0.78rem;font-weight:600;cursor:pointer;transition:all 0.15s;">All</button>
+            <button id="news-cat-security"   onclick="setNewsCategory('security')"   style="padding:5px 14px;border-radius:99px;border:1px solid rgba(255,255,255,0.12);background:transparent;color:#94a3b8;font-size:0.78rem;font-weight:600;cursor:pointer;transition:all 0.15s;">🔒 Security</button>
+            <button id="news-cat-lighting"   onclick="setNewsCategory('lighting')"   style="padding:5px 14px;border-radius:99px;border:1px solid rgba(255,255,255,0.12);background:transparent;color:#94a3b8;font-size:0.78rem;font-weight:600;cursor:pointer;transition:all 0.15s;">💡 Lighting</button>
+            <button id="news-cat-climate"    onclick="setNewsCategory('climate')"    style="padding:5px 14px;border-radius:99px;border:1px solid rgba(255,255,255,0.12);background:transparent;color:#94a3b8;font-size:0.78rem;font-weight:600;cursor:pointer;transition:all 0.15s;">🌡 Climate</button>
+            <button id="news-cat-automation" onclick="setNewsCategory('automation')" style="padding:5px 14px;border-radius:99px;border:1px solid rgba(255,255,255,0.12);background:transparent;color:#94a3b8;font-size:0.78rem;font-weight:600;cursor:pointer;transition:all 0.15s;">⚙️ Automation</button>
+            <button id="news-cat-ecosystem"  onclick="setNewsCategory('ecosystem')"  style="padding:5px 14px;border-radius:99px;border:1px solid rgba(255,255,255,0.12);background:transparent;color:#94a3b8;font-size:0.78rem;font-weight:600;cursor:pointer;transition:all 0.15s;">🔗 Ecosystem</button>
+          </div>
+          <!-- Action options -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+            <button onclick="openNewsBrowser()" style="border:2px solid rgba(255,255,255,0.12);border-radius:12px;padding:14px 16px;cursor:pointer;transition:all 0.2s;background:rgba(15,23,42,0.3);text-align:left;width:100%;">
+              <div style="font-weight:700;font-size:0.875rem;color:#f1f5f9;margin-bottom:3px;">📰 Browse articles</div>
+              <div style="font-size:0.775rem;color:#64748b;">Pick from latest news feed</div>
+            </button>
+            <button onclick="toggleNewsUrlInput()" id="wizard-news-url-toggle" style="border:2px solid rgba(255,255,255,0.12);border-radius:12px;padding:14px 16px;cursor:pointer;transition:all 0.2s;background:rgba(15,23,42,0.3);text-align:left;width:100%;">
+              <div style="font-weight:700;font-size:0.875rem;color:#f1f5f9;margin-bottom:3px;">🔗 Paste article URL</div>
+              <div style="font-size:0.775rem;color:#64748b;">Use any article as seed</div>
+            </button>
+          </div>
+          <!-- URL input (hidden toggle) -->
+          <div id="wizard-news-url-row" style="display:none;margin-bottom:12px;">
+            <div style="display:flex;gap:8px;">
+              <input id="wizard-news-url" class="inp" type="url" placeholder="https://..." style="flex:1;" />
+              <button onclick="fetchNewsUrl()" style="padding:8px 16px;border-radius:8px;background:rgba(99,102,241,0.2);border:1px solid #6366f1;color:#a5b4fc;font-size:0.82rem;font-weight:600;cursor:pointer;white-space:nowrap;">Fetch</button>
+            </div>
+          </div>
+          <!-- Selected seed display -->
+          <div id="wizard-news-seed-display" style="display:none;padding:12px 14px;background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.25);border-radius:10px;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+              <div style="flex:1;min-width:0;">
+                <div style="font-size:0.68rem;color:#6366f1;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">Selected article</div>
+                <div id="wizard-news-seed-title" style="font-size:0.83rem;color:#e2e8f0;font-weight:600;line-height:1.4;margin-bottom:3px;"></div>
+                <div id="wizard-news-seed-source" style="font-size:0.73rem;color:#64748b;"></div>
+              </div>
+              <button onclick="clearNewsSeed()" style="flex-shrink:0;background:none;border:none;color:#475569;cursor:pointer;font-size:1.1rem;padding:0 2px;" title="Remove seed">✕</button>
+            </div>
+          </div>
+        </div>
+
       </div>
 
       <!-- Step 5: Video Provider (video intent only) -->
@@ -883,6 +948,24 @@
       <p style="color:#64748b;font-size:0.875rem;margin:0;font-weight:500;">Configure AI models and social media credentials for NestPost.</p>
     </div>
 
+    <div class="settings-section" style="border:1px solid rgba(20,184,166,0.25);box-shadow:0 0 0 1px rgba(20,184,166,0.08);">
+      <div class="settings-header">
+        <h2 style="font-size:0.9375rem;font-weight:700;color:#2dd4bf;margin:0 0 2px;">Brand Write Up <span style="font-size:0.72rem;font-weight:600;background:rgba(20,184,166,0.12);color:#2dd4bf;border:1px solid rgba(20,184,166,0.25);padding:2px 8px;border-radius:99px;margin-left:6px;">for Generated Content Relevance</span></h2>
+        <p style="font-size:0.8125rem;color:#64748b;margin:0 0 18px;">Describe your brand — products, USPs, target audience, tone of voice, key messages. The AI uses this instead of the default ConnectNest profile when generating posts. The more detail you provide, the more on-brand your content will be.</p>
+      </div>
+      <div class="settings-body" style="border-top:1px solid rgba(20,184,166,0.12);">
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <div>
+            <label class="lbl">Your Brand Profile</label>
+            <textarea id="s-brand-writeup" class="inp" rows="10" placeholder="e.g. ConnectNest is an Australian smart home automation company that helps homeowners automate their lighting, security, climate, and entertainment systems. Our customers are tech-curious homeowners aged 30–55 in metro and suburban areas. Our tone is friendly, knowledgeable, and empowering — never salesy. Key messages: 'your home, smarter'; local support; compatible with all major ecosystems (Google Home, Alexa, Apple HomeKit). Products include smart switches, sensors, hubs, and professional installation services..." style="resize:vertical;font-size:0.84rem;line-height:1.65;min-height:180px;"></textarea>
+          </div>
+          <div style="padding:10px 14px;background:rgba(20,184,166,0.06);border:1px solid rgba(20,184,166,0.15);border-radius:10px;font-size:0.78rem;color:#94a3b8;line-height:1.6;">
+            <strong style="color:#2dd4bf;">Tip:</strong> Include your brand name, what you sell, who your customers are, your tone of voice, key differentiators, and any phrases or messages you always want reflected. Leave blank to use the built-in ConnectNest default profile.
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="settings-section">
       <div class="settings-header">
         <h2 style="font-size:0.9375rem;font-weight:700;color:#f1f5f9;margin:0 0 2px;">General</h2>
@@ -1086,6 +1169,24 @@
           <button onclick="triggerVideoCleanup()" style="align-self:flex-start;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);color:#f87171;padding:8px 16px;border-radius:8px;font-size:0.8rem;font-weight:600;cursor:pointer;">
             🗑 Run Cleanup Now
           </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-header">
+        <h2 style="font-size:0.9375rem;font-weight:700;color:#f1f5f9;margin:0 0 2px;">News Sources</h2>
+        <p style="font-size:0.8125rem;color:#64748b;margin:0 0 18px;">Add custom RSS/Atom feed URLs alongside the 23 built-in smart home sources. One URL per line. These appear in the "Latest Smart Home News" topic source in the wizard.</p>
+      </div>
+      <div class="settings-body" style="border-top:1px solid rgba(255,255,255,0.06);">
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <div>
+            <label class="lbl">Additional Feed URLs <span style="color:#64748b;font-size:0.7rem;">(one per line)</span></label>
+            <textarea id="s-custom-news-feeds" class="inp" rows="5" placeholder="https://example.com/feed/&#10;https://another-blog.com/rss.xml" style="resize:vertical;font-family:monospace;font-size:0.78rem;line-height:1.6;"></textarea>
+          </div>
+          <div style="padding:10px 14px;background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.15);border-radius:10px;font-size:0.78rem;color:#94a3b8;line-height:1.6;">
+            <strong style="color:#818cf8;">23 built-in feeds already included:</strong> The Verge, Home Assistant, Hackaday, Smart Home AU, Automated Home, and more. Any feeds you add here are merged with the defaults. Feed results are cached for 2 hours — hit Refresh in the news drawer to force an update.
+          </div>
         </div>
       </div>
     </div>
@@ -1495,8 +1596,29 @@
   </div>
 </div>
 
+<!-- ── News Article Browser Drawer ──────────────────────────────── -->
+<div id="news-drawer-overlay" onclick="closeNewsBrowser()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:10000;backdrop-filter:blur(2px);"></div>
+<div id="news-drawer" style="display:none;position:fixed;right:0;top:0;height:100vh;width:min(500px,100vw);background:#0d1526;border-left:1px solid rgba(255,255,255,0.08);z-index:10001;overflow-y:auto;flex-direction:column;">
+  <div style="padding:20px 20px 16px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;background:#0d1526;z-index:1;">
+    <div>
+      <div style="font-weight:700;font-size:0.95rem;color:#f1f5f9;">📰 Latest Smart Home News</div>
+      <div style="font-size:0.78rem;color:#64748b;margin-top:2px;">Pick an article to base your post on</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <button onclick="refreshNewsFeed()" style="font-size:0.75rem;color:#818cf8;background:none;border:none;cursor:pointer;font-weight:600;padding:4px 8px;">↻ Refresh</button>
+      <button onclick="closeNewsBrowser()" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);color:#94a3b8;cursor:pointer;font-size:1.1rem;padding:4px 10px;border-radius:6px;">✕</button>
+    </div>
+  </div>
+  <div id="news-drawer-loading" style="padding:48px 20px;text-align:center;color:#64748b;font-size:0.85rem;">
+    <div style="margin-bottom:8px;">⏳ Fetching articles from 23 feeds…</div>
+    <div style="font-size:0.75rem;color:#475569;">This may take a few seconds on first load</div>
+  </div>
+  <div id="news-drawer-articles" style="padding:12px 20px;display:flex;flex-direction:column;gap:10px;"></div>
+</div>
+<!-- ────────────────────────────────────────────────────────────── -->
+
 <div id="toast-container" style="position:fixed;bottom:24px;right:24px;z-index:100;display:flex;flex-direction:column;gap:10px;pointer-events:none;"></div>
 
-<script src="/static/app.js?v=1.4.2"></script>
+<script src="/static/app.js?v=1.5.0"></script>
 </body>
 </html>

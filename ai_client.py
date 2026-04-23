@@ -1,6 +1,7 @@
 import httpx
 import json
 import re
+from typing import Optional
 from knowledge_base import (
     CONNECTNEST_PROFILE,
     PLATFORM_GUIDELINES,
@@ -17,14 +18,19 @@ def build_prompt(
     tone: str,
     post_format: str = "classic_paragraph",
     emoji_density: str = "balanced",
+    news_seed: Optional[dict] = None,
+    brand_writeup: str = "",
 ) -> tuple[str, str]:
     pg = PLATFORM_GUIDELINES.get(platform, PLATFORM_GUIDELINES["instagram"])
     fmt = POST_FORMATS.get(post_format, POST_FORMATS["classic_paragraph"])
     emoji_rule = EMOJI_DIRECTIVES.get(emoji_density, EMOJI_DIRECTIVES["balanced"])
 
+    # Use custom brand writeup if provided, otherwise fall back to default profile
+    brand_context = brand_writeup.strip() if brand_writeup and brand_writeup.strip() else CONNECTNEST_PROFILE
+
     system_prompt = f"""You are an expert social media content writer for ConnectNest, a smart home automation company serving homeowners across Australia.
 
-{CONNECTNEST_PROFILE}
+{brand_context}
 
 Your job is to write compelling, authentic social media content that connects with Australian homeowners.
 Always write in first person as ConnectNest. Never mention competitor brand names.
@@ -57,6 +63,19 @@ Return ONLY a valid JSON object with exactly this structure (no markdown, no exp
   "hook": "the opening hook line only",
   "cta": "the call to action used in the post"
 }}"""
+
+    if news_seed:
+        user_prompt += f"""
+
+NEWS SEED — write this post as ConnectNest's reaction or commentary on this real news item:
+  Headline: {news_seed.get('title', '')}
+  Source:   {news_seed.get('source', '')}
+  Summary:  {news_seed.get('summary', '')}
+  URL:      {news_seed.get('url', '')}
+
+Important: Ground the post in this specific news. Reference the key fact or development.
+Keep the ConnectNest brand voice — educational, empowering, Australian. Add our own angle or insight.
+Do NOT plagiarise — react, comment, or draw a lesson relevant to our customers."""
 
     return system_prompt, user_prompt
 
@@ -133,13 +152,15 @@ async def call_groq(prompt_system: str, prompt_user: str, api_key: str, model: s
         return resp.json()["choices"][0]["message"]["content"]
 
 
-async def call_gemini(prompt_system: str, prompt_user: str, api_key: str) -> str:
+async def call_gemini(prompt_system: str, prompt_user: str, api_key: str, enable_search: bool = False) -> str:
     if not api_key or not api_key.strip():
         raise ValueError("Gemini API key not configured — add it in Settings")
     payload = {
         "contents": [{"parts": [{"text": f"{prompt_system}\n\n{prompt_user}"}]}],
         "generationConfig": {"temperature": 0.8},
     }
+    if enable_search:
+        payload["tools"] = [{"google_search": {}}]
     # Try gemini-2.5-flash first (better quality); fall back to 2.0-flash on 503
     models = ["gemini-2.5-flash", "gemini-2.0-flash"]
     last_err: Exception | None = None
@@ -227,10 +248,13 @@ async def generate_post(
     api_keys: dict,
     post_format: str = "classic_paragraph",
     emoji_density: str = "balanced",
+    news_seed: Optional[dict] = None,
+    brand_writeup: str = "",
 ) -> dict:
     system_p, user_p = build_prompt(
         platform, content_type, topic, angle, tone,
         post_format=post_format, emoji_density=emoji_density,
+        news_seed=news_seed, brand_writeup=brand_writeup,
     )
 
     try:
@@ -239,7 +263,7 @@ async def generate_post(
         elif ai_provider == "groq":
             raw = await call_groq(system_p, user_p, api_keys.get("groq", ""))
         elif ai_provider == "gemini":
-            raw = await call_gemini(system_p, user_p, api_keys.get("gemini", ""))
+            raw = await call_gemini(system_p, user_p, api_keys.get("gemini", ""), enable_search=True)
         elif ai_provider == "deepseek":
             raw = await call_deepseek(system_p, user_p, api_keys.get("deepseek", ""))
         elif ai_provider == "qwen":

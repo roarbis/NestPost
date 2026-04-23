@@ -73,9 +73,12 @@ async def refine_image_prompt(
     image_suggestion: str,
     caption: str,
     platform: str,
-    api_key: str,
+    api_key: str,       # Gemini key (primary)
+    groq_key: str = "", # Groq fallback
+    qwen_key: str = "", # Qwen fallback
 ) -> str:
-    """Use Gemini text to refine an image_suggestion into a detailed image gen prompt."""
+    """Use AI text to refine an image_suggestion into a detailed image gen prompt.
+    Tries Gemini (2.5-flash → 2.0-flash), then Groq, then Qwen. Raises on all failures."""
     system = (
         "You are an expert commercial photographer and image prompt engineer. "
         "Given a social media post caption and a rough image suggestion, "
@@ -113,24 +116,74 @@ async def refine_image_prompt(
         f"Write the refined image generation prompt:"
     )
 
-    payload = {
-        "contents": [{"parts": [{"text": f"{system}\n\n{user_prompt}"}]}],
-        "generationConfig": {"temperature": 0.7, "maxOutputTokens": 500},
-    }
-
-    models = ["gemini-2.5-flash", "gemini-2.0-flash"]
     last_err: Exception | None = None
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        for model in models:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-            resp = await client.post(url, json=payload)
-            if resp.status_code == 503 and model != models[-1]:
-                last_err = Exception(f"{model} 503")
-                continue
-            resp.raise_for_status()
-            text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
-            return text.strip().strip('"')
-    raise last_err
+
+    # ── Provider 1: Gemini (2.5-flash → 2.0-flash) ───────────────────────────
+    if api_key and api_key.strip():
+        gemini_payload = {
+            "contents": [{"parts": [{"text": f"{system}\n\n{user_prompt}"}]}],
+            "generationConfig": {"temperature": 0.7, "maxOutputTokens": 500},
+        }
+        models = ["gemini-2.5-flash", "gemini-2.0-flash"]
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                for model in models:
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+                    resp = await client.post(url, json=gemini_payload)
+                    if resp.status_code == 503 and model != models[-1]:
+                        last_err = Exception(f"{model} 503")
+                        continue
+                    resp.raise_for_status()
+                    text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+                    return text.strip().strip('"')
+        except Exception as e:
+            last_err = e
+
+    # ── Provider 2: Groq (llama-3.3-70b-versatile) ───────────────────────────
+    if groq_key and groq_key.strip():
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
+                    json={
+                        "model": "llama-3.3-70b-versatile",
+                        "messages": [
+                            {"role": "system", "content": system},
+                            {"role": "user", "content": user_prompt},
+                        ],
+                        "temperature": 0.7,
+                        "max_tokens": 500,
+                    },
+                )
+                resp.raise_for_status()
+                return resp.json()["choices"][0]["message"]["content"].strip().strip('"')
+        except Exception as e:
+            last_err = e
+
+    # ── Provider 3: Qwen (qwen-plus) ─────────────────────────────────────────
+    if qwen_key and qwen_key.strip():
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(
+                    "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {qwen_key}", "Content-Type": "application/json"},
+                    json={
+                        "model": "qwen-plus",
+                        "messages": [
+                            {"role": "system", "content": system},
+                            {"role": "user", "content": user_prompt},
+                        ],
+                        "temperature": 0.7,
+                        "max_tokens": 500,
+                    },
+                )
+                resp.raise_for_status()
+                return resp.json()["choices"][0]["message"]["content"].strip().strip('"')
+        except Exception as e:
+            last_err = e
+
+    raise last_err or RuntimeError("No AI provider available for image prompt refinement")
 
 
 async def generate_images_imagen4(
