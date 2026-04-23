@@ -946,6 +946,9 @@ async function loadSettings() {
     // Custom news feeds
     const newsFeedsEl = document.getElementById('s-custom-news-feeds');
     if (newsFeedsEl && data.custom_news_feeds) newsFeedsEl.value = data.custom_news_feeds;
+    // Brand writeup
+    const brandWriteupEl = document.getElementById('s-brand-writeup');
+    if (brandWriteupEl) brandWriteupEl.value = data.brand_writeup || '';
     sensitive.forEach(k => {
       const el = document.getElementById(`s-${k.replace(/_/g,'-')}`);
       if (el && data[k] === '••••••••') el.placeholder = '••••••••  (saved & encrypted)';
@@ -988,6 +991,7 @@ async function saveSettings() {
     r2_public_url: document.getElementById('s-r2-public-url')?.value,
     video_retention_days: document.getElementById('s-video-retention-days')?.value,
     custom_news_feeds: document.getElementById('s-custom-news-feeds')?.value,
+    brand_writeup: document.getElementById('s-brand-writeup')?.value,
   };
   try {
     await api('/api/settings', 'POST', { settings });

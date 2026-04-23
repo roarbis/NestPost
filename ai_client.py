@@ -19,14 +19,18 @@ def build_prompt(
     post_format: str = "classic_paragraph",
     emoji_density: str = "balanced",
     news_seed: Optional[dict] = None,
+    brand_writeup: str = "",
 ) -> tuple[str, str]:
     pg = PLATFORM_GUIDELINES.get(platform, PLATFORM_GUIDELINES["instagram"])
     fmt = POST_FORMATS.get(post_format, POST_FORMATS["classic_paragraph"])
     emoji_rule = EMOJI_DIRECTIVES.get(emoji_density, EMOJI_DIRECTIVES["balanced"])
 
+    # Use custom brand writeup if provided, otherwise fall back to default profile
+    brand_context = brand_writeup.strip() if brand_writeup and brand_writeup.strip() else CONNECTNEST_PROFILE
+
     system_prompt = f"""You are an expert social media content writer for ConnectNest, a smart home automation company serving homeowners across Australia.
 
-{CONNECTNEST_PROFILE}
+{brand_context}
 
 Your job is to write compelling, authentic social media content that connects with Australian homeowners.
 Always write in first person as ConnectNest. Never mention competitor brand names.
@@ -245,11 +249,12 @@ async def generate_post(
     post_format: str = "classic_paragraph",
     emoji_density: str = "balanced",
     news_seed: Optional[dict] = None,
+    brand_writeup: str = "",
 ) -> dict:
     system_p, user_p = build_prompt(
         platform, content_type, topic, angle, tone,
         post_format=post_format, emoji_density=emoji_density,
-        news_seed=news_seed,
+        news_seed=news_seed, brand_writeup=brand_writeup,
     )
 
     try:

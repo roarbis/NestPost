@@ -948,6 +948,24 @@
       <p style="color:#64748b;font-size:0.875rem;margin:0;font-weight:500;">Configure AI models and social media credentials for NestPost.</p>
     </div>
 
+    <div class="settings-section" style="border:1px solid rgba(20,184,166,0.25);box-shadow:0 0 0 1px rgba(20,184,166,0.08);">
+      <div class="settings-header">
+        <h2 style="font-size:0.9375rem;font-weight:700;color:#2dd4bf;margin:0 0 2px;">Brand Write Up <span style="font-size:0.72rem;font-weight:600;background:rgba(20,184,166,0.12);color:#2dd4bf;border:1px solid rgba(20,184,166,0.25);padding:2px 8px;border-radius:99px;margin-left:6px;">for Generated Content Relevance</span></h2>
+        <p style="font-size:0.8125rem;color:#64748b;margin:0 0 18px;">Describe your brand — products, USPs, target audience, tone of voice, key messages. The AI uses this instead of the default ConnectNest profile when generating posts. The more detail you provide, the more on-brand your content will be.</p>
+      </div>
+      <div class="settings-body" style="border-top:1px solid rgba(20,184,166,0.12);">
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <div>
+            <label class="lbl">Your Brand Profile</label>
+            <textarea id="s-brand-writeup" class="inp" rows="10" placeholder="e.g. ConnectNest is an Australian smart home automation company that helps homeowners automate their lighting, security, climate, and entertainment systems. Our customers are tech-curious homeowners aged 30–55 in metro and suburban areas. Our tone is friendly, knowledgeable, and empowering — never salesy. Key messages: 'your home, smarter'; local support; compatible with all major ecosystems (Google Home, Alexa, Apple HomeKit). Products include smart switches, sensors, hubs, and professional installation services..." style="resize:vertical;font-size:0.84rem;line-height:1.65;min-height:180px;"></textarea>
+          </div>
+          <div style="padding:10px 14px;background:rgba(20,184,166,0.06);border:1px solid rgba(20,184,166,0.15);border-radius:10px;font-size:0.78rem;color:#94a3b8;line-height:1.6;">
+            <strong style="color:#2dd4bf;">Tip:</strong> Include your brand name, what you sell, who your customers are, your tone of voice, key differentiators, and any phrases or messages you always want reflected. Leave blank to use the built-in ConnectNest default profile.
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="settings-section">
       <div class="settings-header">
         <h2 style="font-size:0.9375rem;font-weight:700;color:#f1f5f9;margin:0 0 2px;">General</h2>
@@ -1601,6 +1619,6 @@
 
 <div id="toast-container" style="position:fixed;bottom:24px;right:24px;z-index:100;display:flex;flex-direction:column;gap:10px;pointer-events:none;"></div>
 
-<script src="/static/app.js?v=1.4.4"></script>
+<script src="/static/app.js?v=1.5.0"></script>
 </body>
 </html>

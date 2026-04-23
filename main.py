@@ -653,6 +653,9 @@ async def generate(req: GenerateRequest):
         "atlascloud_model": get_setting("atlascloud_model", "deepseek-v3"),
     }
 
+    # Brand writeup — custom brand context for prompt (falls back to built-in CONNECTNEST_PROFILE if empty)
+    brand_writeup = get_setting("brand_writeup", "")
+
     # Resolve topic
     if req.mode == "quick" or not req.topic_id:
         recent = get_recent_topics(20)
@@ -701,6 +704,7 @@ async def generate(req: GenerateRequest):
                     post_format=post_format,
                     emoji_density=emoji_density,
                     news_seed=req.news_seed,
+                    brand_writeup=brand_writeup,
                 )
 
                 # Save to DB
@@ -1714,6 +1718,7 @@ SETTINGS_KEYS = [
     # Video retention
     "video_retention_days",
     "custom_news_feeds",
+    "brand_writeup",
 ]
 
 
