@@ -45,6 +45,18 @@ IMAGE_PROVIDERS = {
         "max_images": 1,
         "needs_key": "openai_api_key",
     },
+    "flux_schnell": {
+        "name": "FLUX Schnell (fal.ai)",
+        "description": "FLUX.1 Schnell via fal.ai — fast, up to 4 images",
+        "max_images": 4,
+        "needs_key": "fal_api_key",
+    },
+    "flux_dev": {
+        "name": "FLUX Dev (fal.ai)",
+        "description": "FLUX.1 Dev via fal.ai — higher quality, up to 4 images",
+        "max_images": 4,
+        "needs_key": "fal_api_key",
+    },
 }
 
 # Aspect ratio options with social media context
@@ -272,6 +284,68 @@ async def generate_images_dalle(
     return [r for r in results if isinstance(r, dict)]
 
 
+async def generate_images_fal_flux(
+    prompt: str,
+    api_key: str,
+    num_images: int = 4,
+    aspect_ratio: str = "1:1",
+    model: str = "fal-ai/flux/schnell",
+) -> list[dict]:
+    """Generate images using FLUX via fal.ai sync API.
+    Returns list of {base64, mime_type}."""
+    # Map aspect ratios to pixel dimensions
+    dimensions = {
+        "1:1":  {"width": 1024, "height": 1024},
+        "4:5":  {"width": 896,  "height": 1120},
+        "9:16": {"width": 720,  "height": 1280},
+        "16:9": {"width": 1280, "height": 720},
+        "3:4":  {"width": 896,  "height": 1120},
+    }
+    image_size = dimensions.get(aspect_ratio, {"width": 1024, "height": 1024})
+
+    url = f"https://fal.run/{model}"
+    headers = {
+        "Authorization": f"Key {api_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "prompt": prompt,
+        "image_size": image_size,
+        "num_images": min(num_images, 4),
+        "output_format": "png",
+        "enable_safety_checker": True,
+        "sync_mode": True,
+    }
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        resp = await client.post(url, json=payload, headers=headers)
+        if resp.status_code == 401:
+            raise ValueError("fal.ai: invalid API key — check Settings → Video Generation → fal.ai API Key")
+        if resp.status_code == 403:
+            raise ValueError("fal.ai: insufficient credits — top up at fal.ai/dashboard/billing")
+        if resp.status_code == 422:
+            raise ValueError(f"fal.ai: bad request — {resp.text[:200]}")
+        resp.raise_for_status()
+        data = resp.json()
+
+    images = []
+    img_urls = [img.get("url", "") for img in data.get("images", []) if img.get("url")]
+
+    # Download images and convert to base64
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        tasks = [client.get(img_url) for img_url in img_urls]
+        responses = await asyncio.gather(*tasks, return_exceptions=True)
+
+    for img_resp in responses:
+        if isinstance(img_resp, Exception):
+            continue
+        if img_resp.status_code == 200:
+            b64 = base64.b64encode(img_resp.content).decode("utf-8")
+            images.append({"base64": b64, "mime_type": "image/png"})
+
+    return images
+
+
 async def generate_images(
     prompt: str,
     provider: str,
@@ -325,6 +399,22 @@ async def generate_images(
         if not key:
             raise ValueError("OpenAI API key required for DALL-E 3")
         return await generate_images_dalle(prompt, key, num_images, aspect_ratio)
+
+    elif provider == "flux_schnell":
+        key = api_keys.get("fal", "")
+        if not key:
+            raise ValueError("fal.ai API key required for FLUX Schnell — add it in Settings → Video Generation")
+        return await generate_images_fal_flux(
+            prompt, key, num_images, aspect_ratio, "fal-ai/flux/schnell"
+        )
+
+    elif provider == "flux_dev":
+        key = api_keys.get("fal", "")
+        if not key:
+            raise ValueError("fal.ai API key required for FLUX Dev — add it in Settings → Video Generation")
+        return await generate_images_fal_flux(
+            prompt, key, num_images, aspect_ratio, "fal-ai/flux/dev"
+        )
 
     else:
         raise ValueError(f"Unknown image provider: {provider}")
