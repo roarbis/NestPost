@@ -398,6 +398,7 @@ async def provider_status():
     gemini_paid_key = get_setting("gemini_paid_api_key", "")
     stability_key = get_setting("stability_api_key", "")
     openai_key = get_setting("openai_api_key", "")
+    fal_key = get_setting("fal_api_key", "")
 
     async def check_ollama():
         return await check_ollama_health(ollama_url)
@@ -512,6 +513,8 @@ async def provider_status():
             "gemini_native_paid": {"online": status_val(results[6]), "label": "Nano Banana 2"},
             "stability": {"online": status_val(results[7]), "label": "Stability AI"},
             "dalle": {"online": status_val(results[8]), "label": "DALL-E 3"},
+            "flux_schnell": {"online": bool(fal_key), "label": "FLUX Schnell"},
+            "flux_dev": {"online": bool(fal_key), "label": "FLUX Dev"},
         },
         "video": {
             "veo3":   {"online": False,                                                                                    "paid": True,  "label": "Veo 3.1 (Google)"},
@@ -973,6 +976,7 @@ async def generate_image(req: GenerateImageRequest):
         "gemini_paid": get_setting("gemini_paid_api_key", ""),
         "stability": get_setting("stability_api_key", ""),
         "openai": get_setting("openai_api_key", ""),
+        "fal": get_setting("fal_api_key", ""),
     }
 
     try:

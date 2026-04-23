@@ -74,7 +74,7 @@ async function loadHealth() {
     });
     renderProviderStatus('image-provider-status', data.image, {
       imagen4: 'Imagen 4', gemini_native: 'Nano Banana', gemini_native_paid: 'Nano Banana 2',
-      stability: 'Stability AI', dalle: 'DALL-E 3',
+      stability: 'Stability AI', dalle: 'DALL-E 3', flux_schnell: 'FLUX Schnell', flux_dev: 'FLUX Dev',
     });
     if (data.video) {
       renderProviderStatus('video-provider-status', data.video, {
@@ -176,8 +176,10 @@ function _buildWizardImageProviderCards(imageData) {
     gemini_native_paid:{ label: 'Nano Banana 2',    icon: '🍌', note: 'Gemini paid — 1 image', free: false },
     stability:         { label: 'Stability AI',     icon: '🎨', note: 'SD3.5 — up to 4 images', free: false },
     dalle:             { label: 'DALL-E 3',         icon: '🤖', note: 'OpenAI — 1 image', free: false },
+    flux_schnell:      { label: 'FLUX Schnell',     icon: '⚡', note: 'fal.ai — fast, 4 images', free: false },
+    flux_dev:          { label: 'FLUX Dev',         icon: '🌊', note: 'fal.ai — quality, 4 images', free: false },
   };
-  const displayOrder = ['imagen4', 'imagen4_fast', 'gemini_native', 'gemini_native_paid', 'stability', 'dalle'];
+  const displayOrder = ['imagen4', 'imagen4_fast', 'gemini_native', 'gemini_native_paid', 'stability', 'dalle', 'flux_schnell', 'flux_dev'];
 
   const enabledKeys = new Set();
   const cards = {};
@@ -1253,6 +1255,8 @@ function updateImageModelInfo() {
     gemini_native_paid: { text: 'Uses Nano Banana 2 paid key — 1 high-quality image', color: '#fbbf24' },
     stability:          { text: 'Uses Stability AI key — up to 4 images', color: '#818cf8' },
     dalle:              { text: 'Uses OpenAI key — 1 image per generation', color: '#818cf8' },
+    flux_schnell:       { text: 'Uses fal.ai key — FLUX.1 Schnell, fast, up to 4 images', color: '#f472b6' },
+    flux_dev:           { text: 'Uses fal.ai key — FLUX.1 Dev, higher quality, up to 4 images', color: '#f472b6' },
   };
   const p = providerInfo[provider] || providerInfo.imagen4;
   info.innerHTML = `<span style="width:6px;height:6px;border-radius:50%;background:${p.color};display:inline-block;"></span> ${p.text}`;
