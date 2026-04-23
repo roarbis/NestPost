@@ -116,11 +116,20 @@ def get_articles(
         all_articles: list[dict] = []
         with ThreadPoolExecutor(max_workers=min(len(feeds), 12)) as pool:
             futures = {pool.submit(_parse_one, f): f for f in feeds}
-            for future in as_completed(futures, timeout=12):
-                try:
-                    all_articles.extend(future.result())
-                except Exception:
-                    pass
+            try:
+                for future in as_completed(futures, timeout=25):
+                    try:
+                        all_articles.extend(future.result())
+                    except Exception:
+                        pass
+            except TimeoutError:
+                # Collect results from any futures that finished before timeout
+                for future in futures:
+                    if future.done():
+                        try:
+                            all_articles.extend(future.result())
+                        except Exception:
+                            pass
         _cache = {
             "articles": all_articles,
             "fetched_at": now,
