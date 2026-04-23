@@ -615,13 +615,14 @@
 
       <!-- Step 4: Topic -->
       <div style="margin-bottom:28px;">
-        <div class="lbl" style="margin-bottom:12px;">Topic</div>
+        <div class="lbl" style="margin-bottom:4px;">Topic</div>
+        <div style="font-size:0.72rem;color:#475569;margin-bottom:12px;letter-spacing:0.01em;">What do you want to post about?</div>
 
-        <!-- Topic source selector -->
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
+        <!-- Topic SOURCE selector (teal accent) -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:6px;">
           <div id="wizard-topic-source-brand"
                onclick="setTopicSource('brand')"
-               style="border:2px solid #6366f1;border-radius:12px;padding:14px 16px;cursor:pointer;transition:all 0.2s;background:rgba(99,102,241,0.1);">
+               style="border:2px solid #14b8a6;border-radius:12px;padding:14px 16px;cursor:pointer;transition:all 0.2s;background:rgba(20,184,166,0.08);">
             <div style="font-weight:700;font-size:0.875rem;color:#f1f5f9;margin-bottom:3px;">📋 Smart Home Topics</div>
             <div style="font-size:0.775rem;color:#64748b;">AI-curated ConnectNest topics</div>
           </div>
@@ -633,8 +634,9 @@
           </div>
         </div>
 
-        <!-- Brand Topics branch (visible by default) -->
-        <div id="wizard-topic-brand-section">
+        <!-- Brand Topics branch (indented sub-section, purple accent) -->
+        <div id="wizard-topic-brand-section" style="border-left:2px solid rgba(99,102,241,0.25);margin-left:6px;padding-left:12px;margin-top:10px;">
+          <div style="font-size:0.7rem;color:#6366f1;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px;">Sub-Topic</div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
             <div id="wizard-topic-auto"
                  onclick="setTopicMode('auto')"
@@ -1577,8 +1579,8 @@
 </div>
 
 <!-- ── News Article Browser Drawer ──────────────────────────────── -->
-<div id="news-drawer-overlay" onclick="closeNewsBrowser()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:200;backdrop-filter:blur(2px);"></div>
-<div id="news-drawer" style="display:none;position:fixed;right:0;top:0;height:100vh;width:min(500px,100vw);background:#0d1526;border-left:1px solid rgba(255,255,255,0.08);z-index:201;overflow-y:auto;flex-direction:column;">
+<div id="news-drawer-overlay" onclick="closeNewsBrowser()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:10000;backdrop-filter:blur(2px);"></div>
+<div id="news-drawer" style="display:none;position:fixed;right:0;top:0;height:100vh;width:min(500px,100vw);background:#0d1526;border-left:1px solid rgba(255,255,255,0.08);z-index:10001;overflow-y:auto;flex-direction:column;">
   <div style="padding:20px 20px 16px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;background:#0d1526;z-index:1;">
     <div>
       <div style="font-weight:700;font-size:0.95rem;color:#f1f5f9;">📰 Latest Smart Home News</div>
@@ -1599,6 +1601,6 @@
 
 <div id="toast-container" style="position:fixed;bottom:24px;right:24px;z-index:100;display:flex;flex-direction:column;gap:10px;pointer-events:none;"></div>
 
-<script src="/static/app.js?v=1.4.3"></script>
+<script src="/static/app.js?v=1.4.4"></script>
 </body>
 </html>

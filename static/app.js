@@ -2109,7 +2109,8 @@ function setTopicSource(source) {
   const brandSec  = document.getElementById('wizard-topic-brand-section');
   const newsSec   = document.getElementById('wizard-topic-news-section');
 
-  const active   = 'border:2px solid #6366f1;border-radius:12px;padding:14px 16px;cursor:pointer;transition:all 0.2s;background:rgba(99,102,241,0.1);';
+  // Teal accent for source-level cards (distinct from indigo sub-option cards)
+  const active   = 'border:2px solid #14b8a6;border-radius:12px;padding:14px 16px;cursor:pointer;transition:all 0.2s;background:rgba(20,184,166,0.08);';
   const inactive = 'border:2px solid rgba(255,255,255,0.1);border-radius:12px;padding:14px 16px;cursor:pointer;transition:all 0.2s;background:rgba(15,23,42,0.3);';
 
   if (brandCard) brandCard.style.cssText = source === 'brand' ? active : inactive;
