@@ -1320,6 +1320,53 @@ def postprocess_video(
     print(f"[postprocess] OK, output={os.path.getsize(out_path)}B")
 
 
+def mix_music_into_video(
+    video_path: str,
+    music_path: str,
+    out_path: str,
+    volume: float = 0.15,
+) -> None:
+    """Mix background music into a video (replaces / adds audio track).
+    Handles mute AI-generated videos. Uses -shortest to match video length."""
+    import subprocess, os
+    if not os.path.exists(music_path):
+        raise FileNotFoundError(f"Music file not found: {music_path}")
+    filter_expr = f"[1:a]volume={volume},afade=t=in:st=0:d=1.5[mus]"
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", video_path,
+        "-i", music_path,
+        "-filter_complex", filter_expr,
+        "-map", "0:v",
+        "-map", "[mus]",
+        "-c:v", "copy",
+        "-c:a", "aac", "-ar", "44100", "-b:a", "128k",
+        "-shortest",
+        out_path,
+    ]
+    result = subprocess.run(cmd, capture_output=True, timeout=120)
+    if result.returncode != 0:
+        raise RuntimeError(f"mix_music failed: {result.stderr.decode(errors='replace')[-400:]}")
+    print(f"[mix_music] OK output={os.path.getsize(out_path)}B")
+
+
+def _auto_music_mood(content_type: str = "", tone: str = "", platform: str = "") -> str:
+    """Pick a music mood automatically from content context."""
+    t = tone.lower()
+    ct = content_type.lower()
+    if platform.lower() == "linkedin":
+        return "corporate"
+    if any(w in t for w in ["energetic", "bold", "exciting", "fun", "dynamic", "vibrant"]):
+        return "energetic"
+    if any(w in t for w in ["inspiring", "motivational", "aspirational", "uplifting"]):
+        return "inspiring"
+    if any(w in t for w in ["calm", "relaxed", "peaceful", "mindful", "zen"]):
+        return "chill"
+    if any(w in ct for w in ["educational", "informational", "how-to", "tutorial", "tips"]):
+        return "corporate"
+    return "chill"
+
+
 # ── Legacy b64 wrappers (kept for backwards compatibility) ────────────────────
 # These exist in case anything still imports them, but the generate endpoint
 # now uses postprocess_video() directly with file paths.
