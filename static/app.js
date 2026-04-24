@@ -3033,7 +3033,7 @@ function renderCalendarGrid(scheduled, year, month) {
     const isToday = dateStr === today;
     const posts = byDate[dateStr] || [];
     const postsHtml = posts.map(p =>
-      `<div onclick="calendarUnschedulePrompt(event,'${p.id}','${(p.topic||'').replace(/'/g,'\\'')}')"`
+      `<div onclick="calendarUnschedulePrompt(event,'${p.id}','${(p.topic||'').replace(/'/g,'')}')"
             style="font-size:0.65rem;padding:2px 5px;border-radius:4px;cursor:pointer;
                    background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);
                    color:#a5b4fc;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
