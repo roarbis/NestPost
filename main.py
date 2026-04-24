@@ -35,7 +35,7 @@ from video_client import (
     generate_video, generate_video_prompts, search_stock_footage,
     VIDEO_PROVIDERS, VIDEO_ASPECT_RATIOS, ATLASCLOUD_MODELS, ATLASCLOUD_MODELS_SORTED,
     upload_video_to_r2, delete_video_from_r2, is_r2_configured,
-    postprocess_video,
+    postprocess_video, mix_music_into_video, _auto_music_mood,
 )
 import news_service
 from contextlib import asynccontextmanager
@@ -752,7 +752,7 @@ async def generate(req: GenerateRequest):
 
 # ── Content Library ───────────────────────────────────────────────────────────
 # Exclude image_data from queries to avoid sending huge blobs in API responses
-CONTENT_COLS = "id, platform, content_type, topic, caption, hashtags, image_suggestion, hook, cta, status, created_at, posted_at, image_path, image_prompt, video_path, video_prompt"
+CONTENT_COLS = "id, platform, content_type, topic, caption, hashtags, image_suggestion, hook, cta, status, created_at, posted_at, image_path, image_prompt, video_path, video_prompt, scheduled_at"
 
 @app.get("/api/content")
 async def list_content(
@@ -824,6 +824,7 @@ class ContentUpdate(BaseModel):
     hashtags: Optional[str] = None
     image_suggestion: Optional[str] = None
     status: Optional[str] = None
+    scheduled_at: Optional[str] = None
 
 
 @app.put("/api/content/{item_id}")
@@ -850,6 +851,9 @@ async def update_content(item_id: int, update: ContentUpdate):
         values.append(update.status)
         if update.status == "posted":
             fields.append("posted_at = CURRENT_TIMESTAMP")
+    if update.scheduled_at is not None:
+        fields.append("scheduled_at = ?")
+        values.append(update.scheduled_at if update.scheduled_at else None)
 
     if fields:
         values.append(item_id)
@@ -1241,6 +1245,7 @@ class GenerateVideoRequest(BaseModel):
     generate_audio: bool = False
     model_id: str = ""  # Atlas Cloud specific model ID
     idempotency_key: Optional[str] = None
+    music_mood: str = "default"
 
 
 @app.post("/api/video/generate")
@@ -1384,6 +1389,61 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
             except Exception as e:
                 print(f"[video-postprocess] postprocess FAILED, returning raw main: {e}")
                 final_source = main_path
+
+            # ── Music mixing ──
+            effective_music_mood = req.music_mood
+            if effective_music_mood == "default":
+                effective_music_mood = get_setting("music_default_mood", "auto")
+            if effective_music_mood not in ("none", ""):
+                if effective_music_mood == "auto":
+                    # Query content item for auto-mood selection
+                    try:
+                        _conn = get_conn()
+                        _row = _conn.execute("SELECT content_type, topic FROM content WHERE id = ?", (req.content_id,)).fetchone()
+                        _conn.close()
+                        effective_music_mood = _auto_music_mood(
+                            content_type=_row["content_type"] if _row else "",
+                            platform=req.provider,
+                        )
+                    except Exception:
+                        effective_music_mood = "chill"
+
+                music_url = get_setting(f"music_{effective_music_mood}_url", "")
+                music_b64_setting = get_setting(f"music_{effective_music_mood}_b64", "")
+
+                if music_url or music_b64_setting:
+                    music_file_path = _os.path.join(tmp_dir, f"music_{effective_music_mood}.mp3")
+                    music_file_ok = False
+                    if music_b64_setting:
+                        try:
+                            with open(music_file_path, "wb") as _f:
+                                _f.write(_b64mod.b64decode(music_b64_setting))
+                            music_file_ok = True
+                            print(f"[music] decoded b64 for mood={effective_music_mood} ({_os.path.getsize(music_file_path)}B)")
+                        except Exception as e:
+                            print(f"[music] b64 decode failed: {e}")
+                    elif music_url:
+                        try:
+                            import httpx as _httpx
+                            async with _httpx.AsyncClient(timeout=30.0) as _cl:
+                                _r = await _cl.get(music_url)
+                                _r.raise_for_status()
+                                with open(music_file_path, "wb") as _f:
+                                    _f.write(_r.content)
+                            music_file_ok = True
+                            print(f"[music] fetched URL for mood={effective_music_mood} ({_os.path.getsize(music_file_path)}B)")
+                        except Exception as e:
+                            print(f"[music] URL fetch failed: {e}")
+
+                    if music_file_ok:
+                        music_out_path = _os.path.join(tmp_dir, "music_out.mp4")
+                        try:
+                            music_vol = float(get_setting("music_volume", "15")) / 100.0
+                            mix_music_into_video(final_source, music_file_path, music_out_path, volume=music_vol)
+                            final_source = music_out_path
+                            print(f"[music] mixed {effective_music_mood} music at vol={music_vol}")
+                        except Exception as e:
+                            print(f"[music] mixing failed, continuing without music: {e}")
 
             # ── Encode final video to b64 for HTTP response ──
             with open(final_source, "rb") as _f:
@@ -1555,6 +1615,63 @@ async def delete_cta_video():
     return {"deleted": True}
 
 
+MUSIC_MOODS = ("energetic", "chill", "corporate", "inspiring")
+
+class MusicUploadRequest(BaseModel):
+    mood: str
+    audio_base64: str
+    mime_type: str = "audio/mpeg"
+
+@app.post("/api/video/music/upload")
+async def upload_music_track(req: MusicUploadRequest):
+    """Upload a background music track for a given mood.
+    Stored in R2 if configured, otherwise as base64 in settings (max 5MB)."""
+    if req.mood not in MUSIC_MOODS:
+        raise HTTPException(status_code=400, detail=f"mood must be one of {MUSIC_MOODS}")
+    audio_bytes = base64.b64decode(req.audio_base64)
+    if len(audio_bytes) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Audio file too large (max 5MB). Trim to a 30–60s loop or configure R2.")
+    r2_config = _get_r2_config()
+    if is_r2_configured(r2_config):
+        url = upload_video_to_r2(
+            video_base64=req.audio_base64,
+            content_id=0,
+            mime_type=req.mime_type,
+            account_id=r2_config["account_id"],
+            access_key_id=r2_config["access_key_id"],
+            secret_access_key=r2_config["secret_access_key"],
+            bucket_name=r2_config["bucket_name"],
+            public_url=r2_config["public_url"],
+            filename_override=f"music_{req.mood}.mp3",
+        )
+        set_setting(f"music_{req.mood}_url", url)
+        set_setting(f"music_{req.mood}_b64", "")
+        return {"saved": True, "storage": "r2", "url": url, "mood": req.mood}
+    else:
+        set_setting(f"music_{req.mood}_b64", req.audio_base64)
+        set_setting(f"music_{req.mood}_url", "")
+        return {"saved": True, "storage": "local", "mood": req.mood}
+
+@app.delete("/api/video/music/{mood}")
+async def delete_music_track(mood: str):
+    if mood not in MUSIC_MOODS:
+        raise HTTPException(status_code=400, detail="Invalid mood")
+    set_setting(f"music_{mood}_url", "")
+    set_setting(f"music_{mood}_b64", "")
+    return {"deleted": True, "mood": mood}
+
+@app.get("/api/video/music/status")
+async def music_status():
+    result = {}
+    for mood in MUSIC_MOODS:
+        url = get_setting(f"music_{mood}_url", "")
+        has_local = bool(get_setting(f"music_{mood}_b64", ""))
+        result[mood] = {"configured": bool(url or has_local), "storage": "r2" if url else ("local" if has_local else None)}
+    result["default_mood"] = get_setting("music_default_mood", "auto")
+    result["volume"] = get_setting("music_volume", "15")
+    return result
+
+
 class StockFootageRequest(BaseModel):
     query: str
     orientation: str = "portrait"
@@ -1656,6 +1773,31 @@ async def stats():
     }
 
 
+@app.get("/api/calendar")
+async def get_calendar(year: int = 2026, month: int = 4):
+    """Return scheduled content for a month + approved unscheduled posts."""
+    import calendar as _cal
+    # First and last day of month as ISO strings
+    first_day = f"{year:04d}-{month:02d}-01"
+    last_day_num = _cal.monthrange(year, month)[1]
+    last_day = f"{year:04d}-{month:02d}-{last_day_num:02d}"
+    conn = get_conn()
+    scheduled = conn.execute(
+        f"SELECT {CONTENT_COLS} FROM content WHERE scheduled_at >= ? AND scheduled_at <= ? ORDER BY scheduled_at ASC",
+        (first_day, last_day)
+    ).fetchall()
+    available = conn.execute(
+        f"SELECT {CONTENT_COLS} FROM content WHERE status = 'approved' AND (scheduled_at IS NULL OR scheduled_at = '') ORDER BY created_at DESC LIMIT 30",
+    ).fetchall()
+    conn.close()
+    return {
+        "scheduled": [dict(r) for r in scheduled],
+        "available": [dict(r) for r in available],
+        "year": year,
+        "month": month,
+    }
+
+
 # ── Settings ──────────────────────────────────────────────────────────────────
 
 ENCRYPTED_KEYS = {
@@ -1719,6 +1861,17 @@ SETTINGS_KEYS = [
     "video_retention_days",
     "custom_news_feeds",
     "brand_writeup",
+    # Music library
+    "music_energetic_url",
+    "music_energetic_b64",
+    "music_chill_url",
+    "music_chill_b64",
+    "music_corporate_url",
+    "music_corporate_b64",
+    "music_inspiring_url",
+    "music_inspiring_b64",
+    "music_default_mood",
+    "music_volume",
 ]
 
 

@@ -71,6 +71,12 @@ def init_db():
     except Exception:
         pass
 
+    # Migration: add scheduled_at for content calendar
+    try:
+        c.execute("ALTER TABLE content ADD COLUMN scheduled_at TEXT")
+    except Exception:
+        pass
+
     # Performance indexes
     try:
         c.execute("CREATE INDEX IF NOT EXISTS idx_content_platform ON content(platform)")

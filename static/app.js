@@ -39,7 +39,7 @@ initTheme();
 document.addEventListener('DOMContentLoaded', async () => {
   showPage('generate');
   setGreeting();
-  await Promise.all([loadHealth(), loadStats(), loadSuggestions(), loadModels(), loadSettings(), loadCurrentUser(), loadBrandLogo(), loadR2Status(), loadCtaStatus(), loadAtlasCloudModels()]);
+  await Promise.all([loadHealth(), loadStats(), loadSuggestions(), loadModels(), loadSettings(), loadCurrentUser(), loadBrandLogo(), loadR2Status(), loadCtaStatus(), loadAtlasCloudModels(), loadMusicStatus()]);
   loadRecentContent();
 });
 
@@ -64,6 +64,7 @@ function showPage(page) {
   if (page === 'library') loadLibrary();
   if (page === 'dashboard') { loadStats(); loadRecentContent(); }
   if (page === 'users') loadUsers();
+  if (page === 'calendar') loadCalendar();
 }
 
 async function loadHealth() {
@@ -992,6 +993,8 @@ async function saveSettings() {
     video_retention_days: document.getElementById('s-video-retention-days')?.value,
     custom_news_feeds: document.getElementById('s-custom-news-feeds')?.value,
     brand_writeup: document.getElementById('s-brand-writeup')?.value,
+    music_default_mood: document.getElementById('s-music-default-mood')?.value,
+    music_volume: document.getElementById('s-music-volume')?.value,
   };
   try {
     await api('/api/settings', 'POST', { settings });
@@ -1101,6 +1104,61 @@ async function deleteCtaVideo() {
   } catch (err) {
     showToast(err.message, 'error');
   }
+}
+
+// ── Music Library ─────────────────────────────────────────────────────────────
+async function loadMusicStatus() {
+  try {
+    const data = await api('/api/video/music/status');
+    ['energetic','chill','corporate','inspiring'].forEach(mood => {
+      const info = data[mood] || {};
+      const statusEl = document.getElementById(`music-status-${mood}`);
+      const delBtn = document.getElementById(`music-delete-${mood}`);
+      if (statusEl) statusEl.textContent = info.configured
+        ? (info.storage === 'r2' ? `✓ Track uploaded (R2)` : `✓ Track uploaded (local)`)
+        : 'No track uploaded';
+      if (statusEl) statusEl.style.color = info.configured ? '#4ade80' : '#64748b';
+      if (delBtn) delBtn.style.display = info.configured ? 'block' : 'none';
+    });
+    const defMood = document.getElementById('s-music-default-mood');
+    if (defMood && data.default_mood) defMood.value = data.default_mood;
+    const volEl = document.getElementById('s-music-volume');
+    if (volEl && data.volume) {
+      volEl.value = data.volume;
+      const display = document.getElementById('music-volume-display');
+      if (display) display.textContent = data.volume + '%';
+    }
+  } catch { /* silent */ }
+}
+
+async function uploadMusicTrack(mood, input) {
+  const file = input.files[0];
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) { showToast('File too large (max 5MB). Use a 30–60s loop.', 'error'); return; }
+  const statusEl = document.getElementById(`music-status-${mood}`);
+  if (statusEl) statusEl.textContent = 'Uploading...';
+  try {
+    const b64 = await new Promise((res, rej) => {
+      const reader = new FileReader();
+      reader.onload = e => res(e.target.result.split(',')[1]);
+      reader.onerror = rej;
+      reader.readAsDataURL(file);
+    });
+    await api('/api/video/music/upload', 'POST', { mood, audio_base64: b64, mime_type: file.type || 'audio/mpeg' });
+    showToast(`${mood} track uploaded`, 'success');
+    loadMusicStatus();
+  } catch (err) {
+    showToast('Upload failed: ' + err.message, 'error');
+    loadMusicStatus();
+  }
+}
+
+async function deleteMusicTrack(mood) {
+  try {
+    await api(`/api/video/music/${mood}`, 'DELETE');
+    showToast(`${mood} track removed`, 'success');
+    loadMusicStatus();
+  } catch (err) { showToast(err.message, 'error'); }
 }
 
 // ── Brand Logo Management ─────────────────────────────────────────────────
@@ -1704,6 +1762,7 @@ async function generateVideo() {
       negative_prompt: negativePrompt,
       resolution,
       generate_audio: generateAudio,
+      music_mood: document.getElementById('modal-video-music-mood')?.value || 'default',
     });
 
     if (data.video_base64) {
@@ -2914,6 +2973,148 @@ function resetWizard() {
 }
 
 // ── End V3 Wizard ─────────────────────────────────────────────────────────────
+
+// ── Content Calendar ──────────────────────────────────────────────────────────
+let _calYear = new Date().getFullYear();
+let _calMonth = new Date().getMonth() + 1; // 1-based
+let _calSelectedPost = null; // post waiting to be assigned to a date
+
+function calendarPrevMonth() {
+  _calMonth--;
+  if (_calMonth < 1) { _calMonth = 12; _calYear--; }
+  loadCalendar();
+}
+
+function calendarNextMonth() {
+  _calMonth++;
+  if (_calMonth > 12) { _calMonth = 1; _calYear++; }
+  loadCalendar();
+}
+
+async function loadCalendar() {
+  const label = document.getElementById('calendar-month-label');
+  if (label) label.textContent = new Date(_calYear, _calMonth - 1, 1).toLocaleDateString('en-AU', { month: 'long', year: 'numeric' });
+  try {
+    const data = await api(`/api/calendar?year=${_calYear}&month=${_calMonth}`);
+    renderCalendarGrid(data.scheduled, _calYear, _calMonth);
+    renderCalendarAvailable(data.available);
+  } catch (e) {
+    const grid = document.getElementById('calendar-grid');
+    if (grid) grid.innerHTML = `<div style="grid-column:1/-1;color:#f87171;font-size:0.8rem;padding:16px;">Failed to load calendar</div>`;
+  }
+}
+
+function renderCalendarGrid(scheduled, year, month) {
+  const grid = document.getElementById('calendar-grid');
+  if (!grid) return;
+
+  // Group scheduled posts by date string
+  const byDate = {};
+  scheduled.forEach(p => {
+    const d = (p.scheduled_at || '').slice(0, 10);
+    if (!byDate[d]) byDate[d] = [];
+    byDate[d].push(p);
+  });
+
+  // First day of month (0=Sun..6=Sat), convert to Mon-based (0=Mon..6=Sun)
+  const firstDow = new Date(year, month - 1, 1).getDay();
+  const monFirst = (firstDow + 6) % 7; // shift so Mon=0
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const today = new Date().toISOString().slice(0, 10);
+
+  let html = '';
+  // Leading empty cells
+  for (let i = 0; i < monFirst; i++) {
+    html += `<div style="min-height:90px;background:rgba(255,255,255,0.02);border-radius:8px;border:1px solid rgba(255,255,255,0.04);"></div>`;
+  }
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    const isToday = dateStr === today;
+    const posts = byDate[dateStr] || [];
+    const postsHtml = posts.map(p =>
+      `<div onclick="calendarUnschedulePrompt('${p.id}', '${(p.topic||'').replace(/'/g,'')}')"
+            style="font-size:0.65rem;padding:2px 5px;border-radius:4px;cursor:pointer;
+                   background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);
+                   color:#a5b4fc;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
+            title="${(p.topic||p.caption||'').replace(/"/g,'')} — click to unschedule">
+        ${_platformIcon(p.platform)} ${(p.topic || p.caption || '').slice(0,20)}
+      </div>`
+    ).join('');
+
+    html += `<div onclick="calendarDayClick('${dateStr}')"
+                  style="min-height:90px;padding:6px 6px 4px;
+                         background:${isToday ? 'rgba(99,102,241,0.08)' : 'rgba(255,255,255,0.02)'};
+                         border-radius:8px;cursor:pointer;
+                         border:1px solid ${isToday ? 'rgba(99,102,241,0.35)' : 'rgba(255,255,255,0.06)'};
+                         transition:background 0.15s;"
+                  onmouseover="this.style.background='rgba(99,102,241,0.06)'"
+                  onmouseout="this.style.background='${isToday ? 'rgba(99,102,241,0.08)' : 'rgba(255,255,255,0.02)'}'">
+      <div style="font-size:0.75rem;font-weight:700;color:${isToday ? '#a5b4fc' : '#94a3b8'};margin-bottom:4px;">${day}</div>
+      ${postsHtml}
+    </div>`;
+  }
+  grid.innerHTML = html;
+}
+
+function _platformIcon(platform) {
+  const icons = {instagram:'📸', linkedin:'💼', facebook:'👍', tiktok:'🎵', twitter:'🐦'};
+  return icons[(platform||'').toLowerCase()] || '📄';
+}
+
+function renderCalendarAvailable(posts) {
+  const el = document.getElementById('calendar-available');
+  if (!el) return;
+  if (!posts.length) {
+    el.innerHTML = `<div style="font-size:0.75rem;color:#64748b;padding:12px;text-align:center;border:1px dashed rgba(255,255,255,0.1);border-radius:8px;">No approved posts available</div>`;
+    return;
+  }
+  el.innerHTML = posts.map(p => `
+    <div onclick="calendarSelectPost(${p.id}, '${(p.topic||'').replace(/'/g,'')}', this)"
+         id="cal-avail-${p.id}"
+         style="padding:8px 10px;border-radius:8px;cursor:pointer;
+                background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);
+                transition:all 0.15s;">
+      <div style="font-size:0.75rem;font-weight:600;color:#f1f5f9;">${_platformIcon(p.platform)} ${(p.topic||'').slice(0,30)}</div>
+      <div style="font-size:0.68rem;color:#64748b;margin-top:2px;">${(p.caption||'').slice(0,50)}…</div>
+    </div>
+  `).join('');
+}
+
+function calendarSelectPost(id, topic, el) {
+  // Deselect previous
+  document.querySelectorAll('#calendar-available > div').forEach(d => {
+    d.style.border = '1px solid rgba(255,255,255,0.08)';
+    d.style.background = 'rgba(255,255,255,0.03)';
+  });
+  if (_calSelectedPost && _calSelectedPost.id === id) {
+    _calSelectedPost = null;
+    return;
+  }
+  _calSelectedPost = {id, topic};
+  el.style.border = '1px solid rgba(99,102,241,0.5)';
+  el.style.background = 'rgba(99,102,241,0.1)';
+  showToast(`"${topic.slice(0,30)}" selected — click a day to schedule it`, 'success');
+}
+
+async function calendarDayClick(dateStr) {
+  if (!_calSelectedPost) return;
+  try {
+    await api(`/api/content/${_calSelectedPost.id}`, 'PUT', { scheduled_at: dateStr });
+    showToast(`Scheduled "${_calSelectedPost.topic.slice(0,25)}" for ${dateStr}`, 'success');
+    _calSelectedPost = null;
+    loadCalendar();
+  } catch (e) { showToast('Schedule failed: ' + e.message, 'error'); }
+}
+
+async function calendarUnschedulePrompt(id, topic) {
+  if (!confirm(`Unschedule "${topic}"?`)) return;
+  try {
+    await api(`/api/content/${id}`, 'PUT', { scheduled_at: '' });
+    showToast('Unscheduled', 'success');
+    loadCalendar();
+  } catch (e) { showToast(e.message, 'error'); }
+}
 
 async function api(url, method = 'GET', body = null) {
   const opts = { method, headers: { 'Content-Type': 'application/json' } };
