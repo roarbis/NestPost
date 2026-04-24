@@ -1635,17 +1635,20 @@
           </div>
         </div>
 
-        <div id="modal-music-wrap" style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
-          <span style="font-size:0.8rem;color:#f1f5f9;white-space:nowrap;">🎵 Music</span>
-          <select id="modal-video-music-mood" class="inp" style="flex:1;padding:5px 10px;font-size:0.8rem;height:32px;">
-            <option value="default">Default (from Settings)</option>
-            <option value="auto">🎵 Auto-select mood</option>
-            <option value="energetic">⚡ Energetic</option>
-            <option value="chill">🌊 Chill</option>
-            <option value="corporate">💼 Corporate</option>
-            <option value="inspiring">✨ Inspiring</option>
-            <option value="none">🔇 No Music</option>
-          </select>
+        <div id="modal-music-wrap" style="margin-bottom:14px;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span style="font-size:0.8rem;color:#f1f5f9;white-space:nowrap;">🎵 Music</span>
+            <select id="modal-video-music-mood" class="inp" style="flex:1;padding:5px 10px;font-size:0.8rem;height:32px;" onchange="_updateVideoMusicStatus()">
+              <option value="default">Default (from Settings)</option>
+              <option value="auto">🎵 Auto-select mood</option>
+              <option value="energetic">⚡ Energetic</option>
+              <option value="chill">🌊 Chill</option>
+              <option value="corporate">💼 Corporate</option>
+              <option value="inspiring">✨ Inspiring</option>
+              <option value="none">🔇 No Music</option>
+            </select>
+          </div>
+          <div id="modal-music-status" style="margin-top:6px;font-size:0.72rem;display:none;"></div>
         </div>
 
         <div id="modal-video-model-info" style="font-size:0.72rem;color:#64748b;margin-bottom:14px;display:flex;align-items:center;gap:6px;"></div>
@@ -1738,6 +1741,6 @@
 
 <div id="toast-container" style="position:fixed;bottom:24px;right:24px;z-index:100;display:flex;flex-direction:column;gap:10px;pointer-events:none;"></div>
 
-<script src="/static/app.js?v=1.6.2"></script>
+<script src="/static/app.js?v=1.6.3"></script>
 </body>
 </html>

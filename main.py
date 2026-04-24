@@ -1391,10 +1391,13 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
                 final_source = main_path
 
             # ── Music mixing ──
+            music_debug = "no music"
             effective_music_mood = req.music_mood
             if effective_music_mood == "default":
                 effective_music_mood = get_setting("music_default_mood", "auto")
-            if effective_music_mood not in ("none", ""):
+            if effective_music_mood in ("none", ""):
+                music_debug = "music disabled"
+            else:
                 if effective_music_mood == "auto":
                     # Query content item for auto-mood selection
                     try:
@@ -1403,6 +1406,7 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
                         _conn.close()
                         effective_music_mood = _auto_music_mood(
                             content_type=_row["content_type"] if _row else "",
+                            tone=req.tone if hasattr(req, "tone") else "",
                             platform=req.provider,
                         )
                     except Exception:
@@ -1411,7 +1415,10 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
                 music_url = get_setting(f"music_{effective_music_mood}_url", "")
                 music_b64_setting = get_setting(f"music_{effective_music_mood}_b64", "")
 
-                if music_url or music_b64_setting:
+                if not music_url and not music_b64_setting:
+                    music_debug = f"no track uploaded for '{effective_music_mood}' mood — add one in Settings → Music Library"
+                    print(f"[music] {music_debug}")
+                else:
                     music_file_path = _os.path.join(tmp_dir, f"music_{effective_music_mood}.mp3")
                     music_file_ok = False
                     if music_b64_setting:
@@ -1421,7 +1428,8 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
                             music_file_ok = True
                             print(f"[music] decoded b64 for mood={effective_music_mood} ({_os.path.getsize(music_file_path)}B)")
                         except Exception as e:
-                            print(f"[music] b64 decode failed: {e}")
+                            music_debug = f"b64 decode failed: {e}"
+                            print(f"[music] {music_debug}")
                     elif music_url:
                         try:
                             import httpx as _httpx
@@ -1433,7 +1441,8 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
                             music_file_ok = True
                             print(f"[music] fetched URL for mood={effective_music_mood} ({_os.path.getsize(music_file_path)}B)")
                         except Exception as e:
-                            print(f"[music] URL fetch failed: {e}")
+                            music_debug = f"URL fetch failed: {e}"
+                            print(f"[music] {music_debug}")
 
                     if music_file_ok:
                         music_out_path = _os.path.join(tmp_dir, "music_out.mp4")
@@ -1441,9 +1450,11 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
                             music_vol = float(get_setting("music_volume", "15")) / 100.0
                             mix_music_into_video(final_source, music_file_path, music_out_path, volume=music_vol)
                             final_source = music_out_path
-                            print(f"[music] mixed {effective_music_mood} music at vol={music_vol}")
+                            music_debug = f"music mixed ✓ ({effective_music_mood}, vol={int(music_vol*100)}%)"
+                            print(f"[music] {music_debug}")
                         except Exception as e:
-                            print(f"[music] mixing failed, continuing without music: {e}")
+                            music_debug = f"FFmpeg mix failed: {e}"
+                            print(f"[music] {music_debug}")
 
             # ── Encode final video to b64 for HTTP response ──
             with open(final_source, "rb") as _f:
@@ -1459,6 +1470,7 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
             "mime_type": mime_type,
             "provider": req.provider,
             "prompt": req.prompt,
+            "music_debug": music_debug,
         }
         _store_idempotency(req.idempotency_key, video_result)
         return video_result

@@ -1107,9 +1107,12 @@ async function deleteCtaVideo() {
 }
 
 // ── Music Library ─────────────────────────────────────────────────────────────
+let _musicStatusCache = null;
+
 async function loadMusicStatus() {
   try {
     const data = await api('/api/video/music/status');
+    _musicStatusCache = data;
     ['energetic','chill','corporate','inspiring'].forEach(mood => {
       const info = data[mood] || {};
       const statusEl = document.getElementById(`music-status-${mood}`);
@@ -1128,7 +1131,36 @@ async function loadMusicStatus() {
       const display = document.getElementById('music-volume-display');
       if (display) display.textContent = data.volume + '%';
     }
+    _updateVideoMusicStatus();
   } catch { /* silent */ }
+}
+
+function _updateVideoMusicStatus() {
+  const el = document.getElementById('modal-music-status');
+  if (!el) return;
+  const sel = document.getElementById('modal-video-music-mood');
+  const mood = sel?.value || 'default';
+  if (mood === 'none') { el.style.display = 'none'; return; }
+  if (!_musicStatusCache) { el.style.display = 'none'; return; }
+  const anyConfigured = ['energetic','chill','corporate','inspiring'].some(m => _musicStatusCache[m]?.configured);
+  if (!anyConfigured) {
+    el.style.display = 'block';
+    el.innerHTML = '⚠️ No music tracks uploaded — <a href="#" onclick="showPage(\'settings\');return false;" style="color:#f59e0b;text-decoration:underline;">go to Settings → Music Library</a> to add MP3s first.';
+    el.style.color = '#f59e0b';
+  } else if (mood === 'default' || mood === 'auto') {
+    const count = ['energetic','chill','corporate','inspiring'].filter(m => _musicStatusCache[m]?.configured).length;
+    el.style.display = 'block';
+    el.innerHTML = `✓ ${count}/4 mood tracks ready`;
+    el.style.color = '#4ade80';
+  } else if (_musicStatusCache[mood]?.configured) {
+    el.style.display = 'block';
+    el.innerHTML = `✓ ${mood} track ready`;
+    el.style.color = '#4ade80';
+  } else {
+    el.style.display = 'block';
+    el.innerHTML = `⚠️ No track uploaded for <strong>${mood}</strong> — <a href="#" onclick="showPage('settings');return false;" style="color:#f59e0b;text-decoration:underline;">upload in Settings</a>`;
+    el.style.color = '#f59e0b';
+  }
 }
 
 async function uploadMusicTrack(mood, input) {
@@ -1772,7 +1804,13 @@ async function generateVideo() {
       const preview = document.getElementById('modal-video-preview');
       preview.src = `data:${data.mime_type};base64,${data.video_base64}`;
       result.style.display = '';
-      showToast('Video generated — preview it below, then save or regenerate', 'success');
+
+      // Show music mixing result
+      let toastMsg = 'Video generated — preview it below, then save or regenerate';
+      if (data.music_debug) {
+        toastMsg += ` (${data.music_debug})`;
+      }
+      showToast(toastMsg, 'success');
     } else {
       showToast('No video returned — try a different model or prompt', 'error');
     }
