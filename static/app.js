@@ -3033,7 +3033,7 @@ function renderCalendarGrid(scheduled, year, month) {
     const isToday = dateStr === today;
     const posts = byDate[dateStr] || [];
     const postsHtml = posts.map(p =>
-      `<div onclick="calendarUnschedulePrompt('${p.id}', '${(p.topic||'').replace(/'/g,'')}')"
+      `<div onclick="calendarUnschedulePrompt(event,'${p.id}','${(p.topic||'').replace(/'/g,'\\'')}')"`
             style="font-size:0.65rem;padding:2px 5px;border-radius:4px;cursor:pointer;
                    background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);
                    color:#a5b4fc;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
@@ -3107,8 +3107,30 @@ async function calendarDayClick(dateStr) {
   } catch (e) { showToast('Schedule failed: ' + e.message, 'error'); }
 }
 
-async function calendarUnschedulePrompt(id, topic) {
-  if (!confirm(`Unschedule "${topic}"?`)) return;
+function _showConfirm(message) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:99999;display:flex;align-items:center;justify-content:center;';
+    overlay.innerHTML = `
+      <div style="background:#1e2533;border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:24px 28px;max-width:380px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.6);">
+        <p style="color:#e2e8f0;margin:0 0 20px;font-size:0.95rem;line-height:1.5;">${message}</p>
+        <div style="display:flex;gap:10px;justify-content:flex-end;">
+          <button id="_conf-cancel" style="padding:8px 18px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:transparent;color:#94a3b8;cursor:pointer;font-size:0.85rem;">Cancel</button>
+          <button id="_conf-ok" style="padding:8px 18px;border-radius:8px;border:none;background:#ef4444;color:#fff;cursor:pointer;font-size:0.85rem;font-weight:600;">Remove</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const cleanup = (val) => { document.body.removeChild(overlay); resolve(val); };
+    overlay.querySelector('#_conf-ok').addEventListener('click', () => cleanup(true));
+    overlay.querySelector('#_conf-cancel').addEventListener('click', () => cleanup(false));
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(false); });
+  });
+}
+
+async function calendarUnschedulePrompt(ev, id, topic) {
+  ev.stopPropagation();
+  const confirmed = await _showConfirm(`Unschedule <strong style="color:#f1f5f9;">"${topic}"</strong>?`);
+  if (!confirmed) return;
   try {
     await api(`/api/content/${id}`, 'PUT', { scheduled_at: '' });
     showToast('Unscheduled', 'success');
