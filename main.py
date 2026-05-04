@@ -165,6 +165,22 @@ PROVIDER_CACHE_TTL = 300  # seconds (5 min — provider keys rarely change)
 _idem_cache: dict[str, tuple[float, dict]] = {}
 _IDEM_TTL = 30  # seconds
 
+# ── Video temp-file registry (Option 1: streaming response) ──────────────────
+# Maps vid_uuid → {"path": str, "created": float}. Files expire after 30 min.
+_video_temp_files: dict = {}
+_VIDEO_TEMP_TTL = 1800  # 30 minutes
+
+def _cleanup_expired_video_temps() -> None:
+    """Remove video temp files older than _VIDEO_TEMP_TTL. Called lazily."""
+    now = time.time()
+    expired = [k for k, v in list(_video_temp_files.items()) if now - v["created"] > _VIDEO_TEMP_TTL]
+    for k in expired:
+        try:
+            os.remove(_video_temp_files[k]["path"])
+        except Exception:
+            pass
+        _video_temp_files.pop(k, None)
+
 def _check_idempotency(key: str | None) -> dict | None:
     """Return cached response if key was seen within TTL, else None."""
     if not key:
@@ -1456,17 +1472,23 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
                             music_debug = f"FFmpeg mix failed: {e}"
                             print(f"[music] {music_debug}")
 
-            # ── Encode final video to b64 for HTTP response ──
-            with open(final_source, "rb") as _f:
-                final_b64 = _b64mod.b64encode(_f.read()).decode()
-            print(f"[video-postprocess] final b64 length={len(final_b64)}")
+            # ── Move final video to persistent temp file (streaming response) ──
+            import uuid as _uuid_mod
+            import tempfile as _tempfile
+            _cleanup_expired_video_temps()  # lazy GC of old temp files
+            vid_uuid = _uuid_mod.uuid4().hex
+            persistent_path = _os.path.join(_tempfile.gettempdir(), f"nestpost_vid_{vid_uuid}.mp4")
+            _shutil.copy2(final_source, persistent_path)
+            _video_temp_files[vid_uuid] = {"path": persistent_path, "created": time.time()}
+            print(f"[video-postprocess] temp file saved: {persistent_path} ({_os.path.getsize(persistent_path)}B)")
         finally:
             _shutil.rmtree(tmp_dir, ignore_errors=True)
             _gc.collect()
 
         video_result = {
             "status": "complete",
-            "video_base64": final_b64,
+            "video_url": f"/api/video/file/{vid_uuid}",
+            "video_temp_uuid": vid_uuid,
             "mime_type": mime_type,
             "provider": req.provider,
             "prompt": req.prompt,
@@ -1480,9 +1502,27 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
         raise HTTPException(status_code=500, detail=f"Video generation failed: {str(e)}")
 
 
+@app.get("/api/video/file/{vid_uuid}")
+async def serve_temp_video(vid_uuid: str, request: Request):
+    """Serve a generated (pre-save) video from temp storage. Auth required.
+    File persists for _VIDEO_TEMP_TTL seconds after generation."""
+    # Auth check — same pattern as other protected endpoints
+    session_token = request.cookies.get("session")
+    if not session_token or not validate_session(session_token):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    # Validate UUID: hex chars only, 32 chars
+    if not vid_uuid.isalnum() or len(vid_uuid) > 64:
+        raise HTTPException(status_code=400, detail="Invalid video ID")
+    entry = _video_temp_files.get(vid_uuid)
+    if not entry or not os.path.exists(entry["path"]):
+        raise HTTPException(status_code=404, detail="Video not found or expired — please regenerate")
+    return FileResponse(entry["path"], media_type="video/mp4")
+
+
 class SaveVideoRequest(BaseModel):
     content_id: int
-    video_base64: str
+    video_base64: str = ""        # legacy path (kept for backward compat)
+    video_temp_uuid: str = ""     # new: reference to temp file from /api/video/generate
     video_prompt: str
     mime_type: str = "video/mp4"
 
@@ -1498,9 +1538,28 @@ async def save_video(req: SaveVideoRequest):
         conn.close()
         raise HTTPException(status_code=404, detail="Content not found")
 
-    # CTA concat + logo overlay already applied at generation time (see
-    # /api/video/generate). video_base64 received here already has both burned in.
-    video_b64 = req.video_base64
+    # Resolve video bytes — either from temp file (new) or inline b64 (legacy).
+    # CTA/logo/music already applied at generation time; nothing to post-process here.
+    if req.video_temp_uuid:
+        entry = _video_temp_files.get(req.video_temp_uuid)
+        if not entry or not os.path.exists(entry["path"]):
+            conn.close()
+            raise HTTPException(status_code=404, detail="Temp video expired — please regenerate")
+        with open(entry["path"], "rb") as _f:
+            video_b64 = base64.b64encode(_f.read()).decode()
+        # Clean up temp file now that it's been read for saving
+        try:
+            os.remove(entry["path"])
+        except Exception:
+            pass
+        _video_temp_files.pop(req.video_temp_uuid, None)
+        print(f"[video-save] loaded from temp file uuid={req.video_temp_uuid}")
+    elif req.video_base64:
+        video_b64 = req.video_base64
+        print(f"[video-save] loaded from inline b64 (legacy path)")
+    else:
+        conn.close()
+        raise HTTPException(status_code=400, detail="No video data provided")
 
     r2_config = _get_r2_config()
     storage_mode = "r2" if is_r2_configured(r2_config) else "blob"

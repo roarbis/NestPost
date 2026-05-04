@@ -843,16 +843,22 @@ async function approveItem() {
     } catch (e) { /* non-fatal — continue with approve */ }
   }
 
-  // Video: base64 in memory that hasn't been saved yet
-  if (window._generatedVideoB64) {
+  // Video: unsaved generated video — save before approving
+  if (window._generatedVideoTempUuid || window._generatedVideoB64) {
     try {
       const prompt = document.getElementById('modal-video-prompt')?.value || '';
-      const data = await api('/api/video/save', 'POST', {
+      const savePayload = {
         content_id: modalItemId,
-        video_base64: window._generatedVideoB64,
         video_prompt: prompt,
         mime_type: window._generatedVideoMime || 'video/mp4',
-      });
+      };
+      if (window._generatedVideoTempUuid) {
+        savePayload.video_temp_uuid = window._generatedVideoTempUuid;
+      } else {
+        savePayload.video_base64 = window._generatedVideoB64;
+      }
+      const data = await api('/api/video/save', 'POST', savePayload);
+      window._generatedVideoTempUuid = null;
       window._generatedVideoB64 = null;
       window._generatedVideoMime = null;
       const savedSection = document.getElementById('modal-saved-video');
@@ -1797,19 +1803,31 @@ async function generateVideo() {
       music_mood: document.getElementById('modal-video-music-mood')?.value || 'default',
     });
 
-    if (data.video_base64) {
+    if (data.video_url) {
+      // Option 1: server returns a streaming URL (no base64 in memory)
+      window._generatedVideoTempUuid = data.video_temp_uuid || '';
+      window._generatedVideoMime = data.mime_type || 'video/mp4';
+      window._generatedVideoB64 = null; // clear any stale legacy value
+
+      const preview = document.getElementById('modal-video-preview');
+      preview.src = data.video_url;
+      result.style.display = '';
+
+      let toastMsg = 'Video generated — preview it below, then save or regenerate';
+      if (data.music_debug) toastMsg += ` (${data.music_debug})`;
+      showToast(toastMsg, 'success');
+    } else if (data.video_base64) {
+      // Legacy fallback (should not happen post-Option-1)
       window._generatedVideoB64 = data.video_base64;
+      window._generatedVideoTempUuid = '';
       window._generatedVideoMime = data.mime_type || 'video/mp4';
 
       const preview = document.getElementById('modal-video-preview');
       preview.src = `data:${data.mime_type};base64,${data.video_base64}`;
       result.style.display = '';
 
-      // Show music mixing result
       let toastMsg = 'Video generated — preview it below, then save or regenerate';
-      if (data.music_debug) {
-        toastMsg += ` (${data.music_debug})`;
-      }
+      if (data.music_debug) toastMsg += ` (${data.music_debug})`;
       showToast(toastMsg, 'success');
     } else {
       showToast('No video returned — try a different model or prompt', 'error');
@@ -1832,16 +1850,24 @@ function regenerateVideo() {
 }
 
 async function saveGeneratedVideo() {
-  if (!window._generatedVideoB64 || !modalItemId) return;
+  if (!window._generatedVideoTempUuid && !window._generatedVideoB64) return;
+  if (!modalItemId) return;
   const prompt = document.getElementById('modal-video-prompt')?.value || '';
 
+  // Build save payload — prefer temp UUID (Option 1), fall back to b64 (legacy)
+  const savePayload = {
+    content_id: modalItemId,
+    video_prompt: prompt,
+    mime_type: window._generatedVideoMime || 'video/mp4',
+  };
+  if (window._generatedVideoTempUuid) {
+    savePayload.video_temp_uuid = window._generatedVideoTempUuid;
+  } else {
+    savePayload.video_base64 = window._generatedVideoB64;
+  }
+
   try {
-    const data = await api('/api/video/save', 'POST', {
-      content_id: modalItemId,
-      video_base64: window._generatedVideoB64,
-      video_prompt: prompt,
-      mime_type: window._generatedVideoMime || 'video/mp4',
-    });
+    const data = await api('/api/video/save', 'POST', savePayload);
 
     const savedSection = document.getElementById('modal-saved-video');
     const preview = document.getElementById('modal-saved-video-preview');
@@ -2889,19 +2915,31 @@ async function wizardGenerateVideo() {
     });
     clearInterval(elapsedTimer);
 
-    // Save the video
-    if (data.video_base64) {
-      await api('/api/video/save', 'POST', {
+    // Save the video — use temp UUID (Option 1) or legacy b64
+    const hasVideo = data.video_url || data.video_base64;
+    if (hasVideo) {
+      const wiz_savePayload = {
         content_id: contentId,
-        video_base64: data.video_base64,
         video_prompt: prompt,
         mime_type: data.mime_type || 'video/mp4',
-      });
+      };
+      if (data.video_temp_uuid) {
+        wiz_savePayload.video_temp_uuid = data.video_temp_uuid;
+      } else if (data.video_base64) {
+        wiz_savePayload.video_base64 = data.video_base64;
+      }
+      await api('/api/video/save', 'POST', wiz_savePayload);
     }
 
     // Show inline video player
     if (vidResult) {
-      if (data.video_base64) {
+      if (data.video_url) {
+        vidResult.innerHTML = `
+          <div style="border-radius:12px;overflow:hidden;margin-bottom:10px;">
+            <video controls style="width:100%;display:block;border-radius:12px;" src="${data.video_url}"></video>
+          </div>
+          <div style="font-size:0.8rem;color:#86efac;font-weight:600;">✓ Video saved to post</div>`;
+      } else if (data.video_base64) {
         vidResult.innerHTML = `
           <div style="border-radius:12px;overflow:hidden;margin-bottom:10px;">
             <video controls style="width:100%;display:block;border-radius:12px;" src="data:${data.mime_type || 'video/mp4'};base64,${data.video_base64}"></video>
