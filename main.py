@@ -390,11 +390,26 @@ async def root():
 
 # ── Health ────────────────────────────────────────────────────────────────────
 
+def _read_version() -> str:
+    try:
+        return open(os.path.join(BASE_DIR, "VERSION")).read().strip()
+    except Exception:
+        return "unknown"
+
+APP_VERSION = _read_version()
+
+
 @app.get("/api/health")
 async def health():
     ollama_url = get_setting("ollama_url", "http://localhost:11434")
     ollama_ok = await check_ollama_health(ollama_url)
-    return {"status": "ok", "ollama": ollama_ok, "ollama_url": ollama_url}
+    return {
+        "status": "ok",
+        "version": APP_VERSION,
+        "env": os.environ.get("APP_ENV", "production").lower(),
+        "ollama": ollama_ok,
+        "ollama_url": ollama_url,
+    }
 
 
 @app.get("/api/provider-status")
