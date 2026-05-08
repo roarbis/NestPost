@@ -125,7 +125,7 @@ app.add_middleware(
 
 # ── Auth Middleware ───────────────────────────────────────────────────────────
 # Public paths that don't require authentication
-PUBLIC_PATHS = {"/api/login", "/api/setup", "/api/auth-status", "/login", "/setup"}
+PUBLIC_PATHS = {"/api/login", "/api/setup", "/api/auth-status", "/api/health", "/login", "/setup"}
 PUBLIC_PREFIXES = ("/static/",)
 
 
