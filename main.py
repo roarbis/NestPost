@@ -1496,10 +1496,13 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
         }
         _store_idempotency(req.idempotency_key, video_result)
         return video_result
+    except MemoryError:
+        raise HTTPException(status_code=500, detail="Out of memory — video too large for this server tier. Try a shorter duration or lower resolution.")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Video generation failed: {str(e)}")
+        detail = str(e) or repr(e) or "Unknown error — check server logs"
+        raise HTTPException(status_code=500, detail=f"Video generation failed: {detail}")
 
 
 @app.get("/api/video/file/{vid_uuid}")

@@ -3224,7 +3224,8 @@ async function api(url, method = 'GET', body = null) {
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || err.error || err.message || res.statusText);
+    const msg = err.detail || err.error || err.message || res.statusText || `HTTP ${res.status} error`;
+    throw new Error(msg);
   }
   return res.json();
 }
