@@ -170,6 +170,9 @@ _IDEM_TTL = 30  # seconds
 _video_temp_files: dict = {}
 _VIDEO_TEMP_TTL = 1800  # 30 minutes
 
+# Last video error stored in memory — retrievable via /api/video/last-error
+_last_video_error: dict = {}
+
 def _cleanup_expired_video_temps() -> None:
     """Remove video temp files older than _VIDEO_TEMP_TTL. Called lazily."""
     now = time.time()
@@ -1512,12 +1515,32 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
         _store_idempotency(req.idempotency_key, video_result)
         return video_result
     except MemoryError:
+        import traceback as _tb
+        _last_video_error.update({"type": "MemoryError", "detail": "OOM", "traceback": _tb.format_exc(), "ts": time.time()})
+        print(f"[video-generate] MemoryError:\n{_tb.format_exc()}")
         raise HTTPException(status_code=500, detail="Out of memory — video too large for this server tier. Try a shorter duration or lower resolution.")
     except ValueError as e:
+        import traceback as _tb
+        _last_video_error.update({"type": type(e).__name__, "detail": str(e), "traceback": _tb.format_exc(), "ts": time.time()})
+        print(f"[video-generate] ValueError: {e}\n{_tb.format_exc()}")
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        import traceback as _tb
         detail = str(e) or repr(e) or "Unknown error — check server logs"
+        _last_video_error.update({"type": type(e).__name__, "detail": detail, "traceback": _tb.format_exc(), "ts": time.time()})
+        print(f"[video-generate] {type(e).__name__}: {detail}\n{_tb.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Video generation failed: {detail}")
+
+
+@app.get("/api/video/last-error")
+async def video_last_error(request: Request):
+    """Return the last video generation error — auth required. Useful for debugging without log access."""
+    session_token = request.cookies.get("session")
+    if not session_token or not validate_session(session_token):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    if not _last_video_error:
+        return {"error": None, "message": "No errors recorded since last restart"}
+    return _last_video_error
 
 
 @app.get("/api/video/file/{vid_uuid}")
