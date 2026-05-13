@@ -179,19 +179,42 @@ _last_video_error: dict = {}
 _PROGRESS_FILE = "/tmp/nestpost_video_progress.json"
 
 def _checkpoint(step: str, **extra) -> None:
-    """Write current pipeline step + memory usage to a persistent file."""
+    """Append current pipeline step + memory usage to a persistent file.
+    Keeps the LAST 50 checkpoints so we can see the whole pipeline run,
+    not just the moment of failure. Survives OOM SIGKILL via fsync."""
     try:
         import json as _json
         import resource as _resource
-        # ru_maxrss on Linux is in KB, on macOS in bytes — we're on Linux
         mem_kb = _resource.getrusage(_resource.RUSAGE_SELF).ru_maxrss
         mem_mb = round(mem_kb / 1024, 1)
-        payload = {"step": step, "mem_mb": mem_mb, "ts": time.time(), **extra}
+        entry = {"step": step, "mem_mb": mem_mb, "ts": time.time(), **extra}
+        # Read existing history (if any), append, truncate to last 50
+        history: list = []
+        try:
+            with open(_PROGRESS_FILE) as f:
+                existing = _json.load(f)
+            if isinstance(existing, dict):
+                # Legacy format — single object. Wrap as history start.
+                history = [existing]
+            elif isinstance(existing, list):
+                history = existing
+        except FileNotFoundError:
+            pass
+        except Exception:
+            pass  # corrupted file, start fresh
+        history.append(entry)
+        history = history[-50:]
         with open(_PROGRESS_FILE, "w") as f:
-            _json.dump(payload, f)
-        print(f"[checkpoint] {step} — {mem_mb} MB")
+            _json.dump(history, f)
+            f.flush()
+            try:
+                import os as _os
+                _os.fsync(f.fileno())  # force disk write before potential SIGKILL
+            except Exception:
+                pass
+        print(f"[checkpoint] {step} — {mem_mb} MB", flush=True)
     except Exception as e:
-        print(f"[checkpoint] write failed: {e}")
+        print(f"[checkpoint] write failed: {e}", flush=True)
 
 def _cleanup_expired_video_temps() -> None:
     """Remove video temp files older than _VIDEO_TEMP_TTL. Called lazily."""
@@ -1872,7 +1895,8 @@ async def replay_video_upload(
 
 @app.get("/api/video/last-progress")
 async def video_last_progress(request: Request):
-    """Return the last pipeline checkpoint written to disk. Survives OOM-kills.
+    """Return the FULL pipeline history (last 50 checkpoints), so we can see
+    every step that ran with its memory snapshot. Survives OOM-kills via fsync.
     Auth required."""
     session_token = request.cookies.get("session")
     if not session_token or not validate_session(session_token):
@@ -1880,9 +1904,15 @@ async def video_last_progress(request: Request):
     try:
         import json as _json
         with open(_PROGRESS_FILE) as f:
-            return _json.load(f)
+            data = _json.load(f)
+        if isinstance(data, dict):
+            # Legacy single-checkpoint format
+            return {"history": [data], "last": data, "count": 1}
+        if isinstance(data, list):
+            return {"history": data, "last": data[-1] if data else None, "count": len(data)}
+        return {"history": [], "last": None, "count": 0}
     except FileNotFoundError:
-        return {"step": None, "message": "No checkpoint file yet"}
+        return {"history": [], "last": None, "count": 0, "message": "No checkpoint file yet"}
     except Exception as e:
         return {"step": "read_error", "error": str(e)}
 

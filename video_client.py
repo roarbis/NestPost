@@ -1110,18 +1110,37 @@ async def _handle_inline_video_response(resp, out_path: str, content_length: int
 
 
 def _vc_checkpoint(step: str, **extra) -> None:
-    """Persist a pipeline checkpoint to /tmp so it survives OOM SIGKILL."""
+    """Append pipeline checkpoint to /tmp so it survives OOM SIGKILL.
+    Keeps last 50 entries — same format as main.py's _checkpoint."""
     try:
         import json as _json
+        import os as _os
         import resource as _resource
         import time as _time
+        path = "/tmp/nestpost_video_progress.json"
         mem_kb = _resource.getrusage(_resource.RUSAGE_SELF).ru_maxrss
         mem_mb = round(mem_kb / 1024, 1)
-        with open("/tmp/nestpost_video_progress.json", "w") as f:
-            _json.dump({"step": step, "mem_mb": mem_mb, "ts": _time.time(), **extra}, f)
-        print(f"[checkpoint] {step} — {mem_mb} MB")
+        entry = {"step": step, "mem_mb": mem_mb, "ts": _time.time(), **extra}
+        history: list = []
+        try:
+            with open(path) as f:
+                existing = _json.load(f)
+            if isinstance(existing, dict):
+                history = [existing]
+            elif isinstance(existing, list):
+                history = existing
+        except Exception:
+            pass
+        history.append(entry)
+        history = history[-50:]
+        with open(path, "w") as f:
+            _json.dump(history, f)
+            f.flush()
+            try: _os.fsync(f.fileno())
+            except Exception: pass
+        print(f"[checkpoint] {step} — {mem_mb} MB", flush=True)
     except Exception as e:
-        print(f"[checkpoint] write failed: {e}")
+        print(f"[checkpoint] write failed: {e}", flush=True)
 
 
 async def _poll_atlascloud(prediction_id: str, api_key: str, max_wait: int = 600, out_path: str = "") -> dict:
