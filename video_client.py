@@ -1350,8 +1350,23 @@ def postprocess_video(
     cta_idx = logo_idx = silent_idx = None
 
     # Probe main video dimensions up front — needed to normalize CTA to match
-    main_w, main_h = _probe_dimensions(main_path, fallback=(720, 1280))
-    print(f"[postprocess] main dimensions probed: {main_w}x{main_h}")
+    src_w, src_h = _probe_dimensions(main_path, fallback=(720, 1280))
+    print(f"[postprocess] main dimensions probed: {src_w}x{src_h}")
+    # Cap output resolution to 720p to keep FFmpeg memory under control on
+    # 512 MB tiers. Veo 3.1 returns 1080p (or higher) which can push libx264 +
+    # concat + overlay past the memory ceiling. Social-media output (Instagram
+    # Reels, TikTok, etc.) doesn't benefit from > 720p anyway.
+    MAX_DIM = 1280
+    if max(src_w, src_h) > MAX_DIM:
+        if src_h >= src_w:  # portrait
+            main_h = MAX_DIM
+            main_w = (src_w * MAX_DIM // src_h) & ~1  # even number, required by yuv420p
+        else:  # landscape
+            main_w = MAX_DIM
+            main_h = (src_h * MAX_DIM // src_w) & ~1
+        print(f"[postprocess] capping output to {main_w}x{main_h} (from {src_w}x{src_h}) for memory")
+    else:
+        main_w, main_h = src_w, src_h
 
     if have_cta:
         inputs += ["-i", cta_path]
@@ -1412,17 +1427,38 @@ def postprocess_video(
         + inputs
         + ["-filter_complex", filter_complex]
         + maps
-        + ["-c:v", "libx264", "-preset", "fast", "-crf", "23"]
+        # Memory-frugal x264 settings — these cut peak FFmpeg RAM from
+        # ~400 MB to ~80 MB at 720p, which is essential on Render 512 MB:
+        # - ultrafast: smallest reference buffers, fastest encode
+        # - threads 1: single thread avoids per-thread frame buffers
+        # - tune zerolatency: disables lookahead, reduces frame buffer
+        # - x264-params: minimal references, no B-frames, no scenecut analysis
+        + ["-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
+           "-threads", "1", "-crf", "26",
+           "-x264-params", "ref=1:bframes=0:no-scenecut=1:keyint=60"]
         + audio_codec
         + [out_path]
     )
     print(f"[postprocess] filter_complex: {filter_complex}")
-    result = subprocess.run(cmd, capture_output=True, timeout=360)
-
-    if result.returncode != 0:
-        stderr_tail = result.stderr.decode(errors="replace")[-800:]
-        print(f"[postprocess] FAILED rc={result.returncode}\n{stderr_tail}")
-        raise RuntimeError(f"postprocess_video failed: {stderr_tail[:500]}")
+    # Stream stderr to a temp file instead of capturing in Python memory —
+    # ffmpeg can produce MBs of progress output that would compound the OOM.
+    import tempfile as _tf
+    with _tf.NamedTemporaryFile(mode="w+b", delete=False, prefix="ffmpeg_err_") as _err_f:
+        err_path = _err_f.name
+    try:
+        with open(err_path, "wb") as _ef:
+            result = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=_ef, timeout=360)
+        if result.returncode != 0:
+            with open(err_path, "rb") as _ef:
+                _ef.seek(0, 2)  # end of file
+                size = _ef.tell()
+                _ef.seek(max(0, size - 800))
+                stderr_tail = _ef.read().decode(errors="replace")
+            print(f"[postprocess] FAILED rc={result.returncode}\n{stderr_tail}")
+            raise RuntimeError(f"postprocess_video failed: {stderr_tail[:500]}")
+    finally:
+        try: os.remove(err_path)
+        except Exception: pass
 
     print(f"[postprocess] OK, output={os.path.getsize(out_path)}B")
 
@@ -1441,19 +1477,32 @@ def mix_music_into_video(
     filter_expr = f"[1:a]volume={volume},afade=t=in:st=0:d=1.5[mus]"
     cmd = [
         "ffmpeg", "-y",
+        "-threads", "1",          # single-thread → lower memory
         "-i", video_path,
         "-i", music_path,
         "-filter_complex", filter_expr,
         "-map", "0:v",
         "-map", "[mus]",
-        "-c:v", "copy",
+        "-c:v", "copy",            # video unchanged → no re-encode, minimal RAM
         "-c:a", "aac", "-ar", "44100", "-b:a", "128k",
         "-shortest",
         out_path,
     ]
-    result = subprocess.run(cmd, capture_output=True, timeout=120)
-    if result.returncode != 0:
-        raise RuntimeError(f"mix_music failed: {result.stderr.decode(errors='replace')[-400:]}")
+    # Stream stderr to file (don't buffer in Python memory)
+    import tempfile as _tf
+    with _tf.NamedTemporaryFile(mode="w+b", delete=False, prefix="ffmpeg_mix_") as _err_f:
+        err_path = _err_f.name
+    try:
+        with open(err_path, "wb") as _ef:
+            result = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=_ef, timeout=120)
+        if result.returncode != 0:
+            with open(err_path, "rb") as _ef:
+                _ef.seek(0, 2); size = _ef.tell(); _ef.seek(max(0, size - 400))
+                tail = _ef.read().decode(errors="replace")
+            raise RuntimeError(f"mix_music failed: {tail}")
+    finally:
+        try: os.remove(err_path)
+        except Exception: pass
     print(f"[mix_music] OK output={os.path.getsize(out_path)}B")
 
 
