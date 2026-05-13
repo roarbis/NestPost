@@ -1692,7 +1692,7 @@ async def replay_video_pipeline(req: ReplayVideoRequest, request: Request):
             _checkpoint("replay_postprocess_ok", out_size_mb=round(_os.path.getsize(out_path) / 1024 / 1024, 1))
         except Exception as e:
             final_source = main_path
-            _checkpoint("replay_postprocess_failed", error=str(e)[:200])
+            _checkpoint("replay_postprocess_failed", error=str(e)[:800])
 
         # Music
         music_debug = "skipped (replay)"
@@ -1724,7 +1724,7 @@ async def replay_video_pipeline(req: ReplayVideoRequest, request: Request):
                     _checkpoint("replay_music_mixed", out_size_mb=round(_os.path.getsize(music_out_path) / 1024 / 1024, 1))
                 except Exception as e:
                     music_debug = f"mix failed: {e}"
-                    _checkpoint("replay_music_mix_failed", error=str(e)[:200])
+                    _checkpoint("replay_music_mix_failed", error=str(e)[:800])
 
         # Save to persistent temp + return URL
         import uuid as _uuid_mod
@@ -1750,7 +1750,7 @@ async def replay_video_pipeline(req: ReplayVideoRequest, request: Request):
         raise
     except Exception as e:
         import traceback as _tb
-        _checkpoint("replay_exception", error=str(e)[:200])
+        _checkpoint("replay_exception", error=str(e)[:800])
         raise HTTPException(status_code=500, detail=f"Replay failed: {e}\n{_tb.format_exc()[:500]}")
     finally:
         _shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -1829,7 +1829,7 @@ async def replay_video_upload(
             _checkpoint("replay_postprocess_ok", out_size_mb=round(_os.path.getsize(out_path) / 1024 / 1024, 1))
         except Exception as e:
             final_source = main_path
-            _checkpoint("replay_postprocess_failed", error=str(e)[:200])
+            _checkpoint("replay_postprocess_failed", error=str(e)[:800])
 
         # Music
         music_debug = "skipped (replay)"
@@ -1861,7 +1861,7 @@ async def replay_video_upload(
                     _checkpoint("replay_music_mixed", out_size_mb=round(_os.path.getsize(music_out_path) / 1024 / 1024, 1))
                 except Exception as e:
                     music_debug = f"mix failed: {e}"
-                    _checkpoint("replay_music_mix_failed", error=str(e)[:200])
+                    _checkpoint("replay_music_mix_failed", error=str(e)[:800])
 
         import uuid as _uuid_mod
         import tempfile as _tempfile
@@ -1886,7 +1886,7 @@ async def replay_video_upload(
         raise
     except Exception as e:
         import traceback as _tb
-        _checkpoint("replay_exception", error=str(e)[:200])
+        _checkpoint("replay_exception", error=str(e)[:800])
         raise HTTPException(status_code=500, detail=f"Replay failed: {e}\n{_tb.format_exc()[:500]}")
     finally:
         _shutil.rmtree(tmp_dir, ignore_errors=True)

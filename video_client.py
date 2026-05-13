@@ -1453,7 +1453,7 @@ def postprocess_video(
         # - tune zerolatency: disables lookahead, reduces frame buffer
         # - x264-params: minimal references, no B-frames, no scenecut analysis
         + ["-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
-           "-threads", "1", "-crf", "26",
+           "-threads", "2", "-crf", "26",
            "-x264-params", "ref=1:bframes=0:no-scenecut=1:keyint=60"]
         + audio_codec
         + [out_path]
@@ -1466,7 +1466,9 @@ def postprocess_video(
         err_path = _err_f.name
     try:
         with open(err_path, "wb") as _ef:
-            result = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=_ef, timeout=360)
+            # 900s = 15 min. -threads 2 should finish 720p 8-12s clips well
+            # under this on Render free tier; this is a safety margin.
+            result = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=_ef, timeout=900)
         if result.returncode != 0:
             with open(err_path, "rb") as _ef:
                 _ef.seek(0, 2)  # end of file
