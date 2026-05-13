@@ -1052,10 +1052,10 @@ async def generate_video_atlascloud(
     if not prediction_id:
         return {"status": "error", "error": f"Atlas Cloud: no prediction ID returned — {data}"}
 
-    return await _poll_atlascloud(prediction_id, api_key)
+    return await _poll_atlascloud(prediction_id, api_key, out_path=out_path)
 
 
-async def _poll_atlascloud(prediction_id: str, api_key: str, max_wait: int = 600) -> dict:
+async def _poll_atlascloud(prediction_id: str, api_key: str, max_wait: int = 600, out_path: str = "") -> dict:
     """Poll Atlas Cloud prediction endpoint every 10 seconds until complete.
     Kling 3.0 Pro can take 8-10 minutes — max_wait set to 600s."""
     url = f"https://api.atlascloud.ai/api/v1/model/prediction/{prediction_id}"
