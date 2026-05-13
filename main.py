@@ -1309,7 +1309,24 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
         "atlascloud_video_model": req.model_id or get_setting("atlascloud_video_model", "kwaivgi/kling-v3.0-pro/text-to-video"),
     }
 
+    # Pre-create tmp_dir + main_path so generate_video can stream straight to disk
+    # (v1.3.0 — eliminates the b64 round-trip that was OOM'ing on Render 512MB)
+    import base64 as _b64mod
+    import gc as _gc
+    import os as _os
+    import shutil as _shutil
+    import tempfile as _tf
+
+    tmp_dir = _tf.mkdtemp(prefix="nestpost_video_")
+    main_path = _os.path.join(tmp_dir, "main.mp4")
+    cta_path  = _os.path.join(tmp_dir, "cta.mp4")
+    logo_path = _os.path.join(tmp_dir, "logo.png")
+    out_path  = _os.path.join(tmp_dir, "out.mp4")
+
     try:
+        # Pass out_path so Atlas Cloud streams chunks directly to main_path —
+        # no base64, no big buffer. Other providers still return video_base64
+        # (handled by the legacy decode-to-disk path below).
         result = await generate_video(
             prompt=req.prompt,
             provider=req.provider,
@@ -1319,43 +1336,35 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
             negative_prompt=req.negative_prompt,
             resolution=req.resolution,
             generate_audio=req.generate_audio,
+            out_path=main_path if req.provider == "atlascloud_video" else "",
         )
 
         if result.get("status") == "rate_limited":
+            _shutil.rmtree(tmp_dir, ignore_errors=True)
             return JSONResponse(status_code=429, content=result)
 
         if result.get("status") != "complete":
+            _shutil.rmtree(tmp_dir, ignore_errors=True)
             raise HTTPException(status_code=500, detail=result.get("error", "Video generation failed"))
 
-        video_b64 = result["video_base64"]
         mime_type = result.get("mime_type", "video/mp4")
-
-        # ── Post-processing pipeline: CTA concat + logo overlay (single pass) ──
-        # Memory-efficient: write Atlas Cloud output to disk immediately, free
-        # the base64 string, then do CTA+logo in one ffmpeg invocation on files.
-        # Render's 512MB instance was OOM'ing on the old b64-in-memory pipeline.
-        import base64 as _b64mod
-        import gc as _gc
-        import os as _os
-        import shutil as _shutil
-        import tempfile as _tf
 
         print(f"[video-postprocess] append_cta_requested={req.append_cta} provider={req.provider} model={req.model_id}")
 
-        tmp_dir = _tf.mkdtemp(prefix="nestpost_video_")
-        main_path = _os.path.join(tmp_dir, "main.mp4")
-        cta_path  = _os.path.join(tmp_dir, "cta.mp4")
-        logo_path = _os.path.join(tmp_dir, "logo.png")
-        out_path  = _os.path.join(tmp_dir, "out.mp4")
-
         try:
-            # Write the Atlas Cloud video to disk, then drop the big b64 string
-            with open(main_path, "wb") as _f:
-                _f.write(_b64mod.b64decode(video_b64))
-            print(f"[video-postprocess] main written to disk ({_os.path.getsize(main_path)}B)")
-            video_b64 = None  # free the big string
-            del result["video_base64"]
-            _gc.collect()
+            # Did the provider stream directly to disk? (Atlas Cloud, v1.3.0+)
+            if result.get("video_path") and _os.path.exists(result["video_path"]):
+                # main_path is already populated — no decode needed
+                print(f"[video-postprocess] main streamed to disk ({_os.path.getsize(main_path)}B)")
+            else:
+                # Legacy b64 path (other providers): decode to disk, then free
+                video_b64 = result["video_base64"]
+                with open(main_path, "wb") as _f:
+                    _f.write(_b64mod.b64decode(video_b64))
+                print(f"[video-postprocess] main decoded to disk ({_os.path.getsize(main_path)}B)")
+                video_b64 = None
+                del result["video_base64"]
+                _gc.collect()
 
             # ── CTA: resolve settings → write to disk ──
             cta_file_ok = False
@@ -1516,16 +1525,22 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
         return video_result
     except MemoryError:
         import traceback as _tb
+        _shutil.rmtree(tmp_dir, ignore_errors=True)
         _last_video_error.update({"type": "MemoryError", "detail": "OOM", "traceback": _tb.format_exc(), "ts": time.time()})
         print(f"[video-generate] MemoryError:\n{_tb.format_exc()}")
         raise HTTPException(status_code=500, detail="Out of memory — video too large for this server tier. Try a shorter duration or lower resolution.")
     except ValueError as e:
         import traceback as _tb
+        _shutil.rmtree(tmp_dir, ignore_errors=True)
         _last_video_error.update({"type": type(e).__name__, "detail": str(e), "traceback": _tb.format_exc(), "ts": time.time()})
         print(f"[video-generate] ValueError: {e}\n{_tb.format_exc()}")
         raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        _shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise
     except Exception as e:
         import traceback as _tb
+        _shutil.rmtree(tmp_dir, ignore_errors=True)
         detail = str(e) or repr(e) or "Unknown error — check server logs"
         _last_video_error.update({"type": type(e).__name__, "detail": detail, "traceback": _tb.format_exc(), "ts": time.time()})
         print(f"[video-generate] {type(e).__name__}: {detail}\n{_tb.format_exc()}")

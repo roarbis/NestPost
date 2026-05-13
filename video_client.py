@@ -938,6 +938,7 @@ async def generate_video(
     negative_prompt: str = "",
     resolution: str = "",
     generate_audio: bool = False,
+    out_path: str = "",
 ) -> dict:
     """Route video generation to the appropriate provider.
     Returns {status, video_base64, mime_type} or {status, error}."""
@@ -982,6 +983,7 @@ async def generate_video(
         return await generate_video_atlascloud(
             prompt, key, model, aspect_ratio, duration,
             negative_prompt, resolution, generate_audio,
+            out_path=out_path,
         )
 
     else:
@@ -997,6 +999,7 @@ async def generate_video_atlascloud(
     negative_prompt: str = "",
     resolution: str = "",
     generate_audio: bool = False,
+    out_path: str = "",
 ) -> dict:
     """Generate video via Atlas Cloud aggregator API (queue-based).
     Builds payload dynamically from ATLASCLOUD_MODELS config.
@@ -1092,9 +1095,28 @@ async def _poll_atlascloud(prediction_id: str, api_key: str, max_wait: int = 600
                                  data.get("url") or data.get("video"))
 
                 if video_url:
-                    # Download, encode once, free raw bytes immediately.
-                    # (Holding raw + b64 simultaneously is ~2.3x video size in RAM —
-                    # matters on 512MB Render instances.)
+                    # Memory-efficient: stream chunks directly to disk if caller
+                    # provided out_path. Avoids holding the full video + base64
+                    # in RAM simultaneously (was OOM'ing on Render 512MB tier).
+                    if out_path:
+                        import os as _os
+                        total = 0
+                        async with httpx.AsyncClient(timeout=120.0) as dl:
+                            async with dl.stream("GET", video_url) as vresp:
+                                vresp.raise_for_status()
+                                with open(out_path, "wb") as _f:
+                                    async for chunk in vresp.aiter_bytes(chunk_size=65536):
+                                        _f.write(chunk)
+                                        total += len(chunk)
+                        print(f"[atlascloud] streamed {total}B to {out_path} from {video_url[:80]}")
+                        return {
+                            "status": "complete",
+                            "video_path": out_path,
+                            "mime_type": "video/mp4",
+                        }
+
+                    # Legacy path: full buffer + base64 (still used by callers
+                    # that don't pass out_path — kept for backward compat).
                     import base64, gc
                     async with httpx.AsyncClient(timeout=120.0) as dl:
                         vresp = await dl.get(video_url)
