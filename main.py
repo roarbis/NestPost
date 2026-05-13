@@ -173,6 +173,26 @@ _VIDEO_TEMP_TTL = 1800  # 30 minutes
 # Last video error stored in memory — retrievable via /api/video/last-error
 _last_video_error: dict = {}
 
+# Disk-based progress checkpoint — survives OOM-kill / process restart.
+# Updated after every meaningful step in video generation so we can see
+# where the process died (even when it gets SIGKILL'd by the OOM killer).
+_PROGRESS_FILE = "/tmp/nestpost_video_progress.json"
+
+def _checkpoint(step: str, **extra) -> None:
+    """Write current pipeline step + memory usage to a persistent file."""
+    try:
+        import json as _json
+        import resource as _resource
+        # ru_maxrss on Linux is in KB, on macOS in bytes — we're on Linux
+        mem_kb = _resource.getrusage(_resource.RUSAGE_SELF).ru_maxrss
+        mem_mb = round(mem_kb / 1024, 1)
+        payload = {"step": step, "mem_mb": mem_mb, "ts": time.time(), **extra}
+        with open(_PROGRESS_FILE, "w") as f:
+            _json.dump(payload, f)
+        print(f"[checkpoint] {step} — {mem_mb} MB")
+    except Exception as e:
+        print(f"[checkpoint] write failed: {e}")
+
 def _cleanup_expired_video_temps() -> None:
     """Remove video temp files older than _VIDEO_TEMP_TTL. Called lazily."""
     now = time.time()
@@ -1324,6 +1344,7 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
     out_path  = _os.path.join(tmp_dir, "out.mp4")
 
     try:
+        _checkpoint("start", provider=req.provider, model=req.model_id)
         # Pass out_path so Atlas Cloud streams chunks directly to main_path —
         # no base64, no big buffer. Other providers still return video_base64
         # (handled by the legacy decode-to-disk path below).
@@ -1348,6 +1369,7 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
             raise HTTPException(status_code=500, detail=result.get("error", "Video generation failed"))
 
         mime_type = result.get("mime_type", "video/mp4")
+        _checkpoint("provider_complete", path_or_b64="path" if result.get("video_path") else "b64")
 
         print(f"[video-postprocess] append_cta_requested={req.append_cta} provider={req.provider} model={req.model_id}")
 
@@ -1355,16 +1377,20 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
             # Did the provider stream directly to disk? (Atlas Cloud, v1.3.0+)
             if result.get("video_path") and _os.path.exists(result["video_path"]):
                 # main_path is already populated — no decode needed
-                print(f"[video-postprocess] main streamed to disk ({_os.path.getsize(main_path)}B)")
+                main_size = _os.path.getsize(main_path)
+                print(f"[video-postprocess] main streamed to disk ({main_size}B)")
+                _checkpoint("main_streamed", main_size_mb=round(main_size / 1024 / 1024, 1))
             else:
                 # Legacy b64 path (other providers): decode to disk, then free
                 video_b64 = result["video_base64"]
                 with open(main_path, "wb") as _f:
                     _f.write(_b64mod.b64decode(video_b64))
-                print(f"[video-postprocess] main decoded to disk ({_os.path.getsize(main_path)}B)")
+                main_size = _os.path.getsize(main_path)
+                print(f"[video-postprocess] main decoded to disk ({main_size}B)")
                 video_b64 = None
                 del result["video_base64"]
                 _gc.collect()
+                _checkpoint("main_decoded", main_size_mb=round(main_size / 1024 / 1024, 1))
 
             # ── CTA: resolve settings → write to disk ──
             cta_file_ok = False
@@ -1419,6 +1445,7 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
                 print(f"[video-postprocess] logo skipped — brand_logo_b64 not set")
             _gc.collect()
 
+            _checkpoint("pre_postprocess", cta_ok=cta_file_ok, logo_ok=logo_file_ok)
             # ── Single ffmpeg pass ──
             try:
                 postprocess_video(
@@ -1429,9 +1456,11 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
                 )
                 final_source = out_path
                 print(f"[video-postprocess] postprocess OK ({_os.path.getsize(out_path)}B)")
+                _checkpoint("postprocess_ok", out_size_mb=round(_os.path.getsize(out_path) / 1024 / 1024, 1))
             except Exception as e:
                 print(f"[video-postprocess] postprocess FAILED, returning raw main: {e}")
                 final_source = main_path
+                _checkpoint("postprocess_failed", error=str(e))
 
             # ── Music mixing ──
             music_debug = "no music"
@@ -1488,6 +1517,7 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
                             print(f"[music] {music_debug}")
 
                     if music_file_ok:
+                        _checkpoint("pre_music_mix", mood=effective_music_mood)
                         music_out_path = _os.path.join(tmp_dir, "music_out.mp4")
                         try:
                             music_vol = float(get_setting("music_volume", "15")) / 100.0
@@ -1495,9 +1525,11 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
                             final_source = music_out_path
                             music_debug = f"music mixed ✓ ({effective_music_mood}, vol={int(music_vol*100)}%)"
                             print(f"[music] {music_debug}")
+                            _checkpoint("music_mixed", out_size_mb=round(_os.path.getsize(music_out_path) / 1024 / 1024, 1))
                         except Exception as e:
                             music_debug = f"FFmpeg mix failed: {e}"
                             print(f"[music] {music_debug}")
+                            _checkpoint("music_mix_failed", error=str(e))
 
             # ── Move final video to persistent temp file (streaming response) ──
             import uuid as _uuid_mod
@@ -1508,6 +1540,7 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
             _shutil.copy2(final_source, persistent_path)
             _video_temp_files[vid_uuid] = {"path": persistent_path, "created": time.time()}
             print(f"[video-postprocess] temp file saved: {persistent_path} ({_os.path.getsize(persistent_path)}B)")
+            _checkpoint("complete", final_size_mb=round(_os.path.getsize(persistent_path) / 1024 / 1024, 1))
         finally:
             _shutil.rmtree(tmp_dir, ignore_errors=True)
             _gc.collect()
@@ -1545,6 +1578,23 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
         _last_video_error.update({"type": type(e).__name__, "detail": detail, "traceback": _tb.format_exc(), "ts": time.time()})
         print(f"[video-generate] {type(e).__name__}: {detail}\n{_tb.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Video generation failed: {detail}")
+
+
+@app.get("/api/video/last-progress")
+async def video_last_progress(request: Request):
+    """Return the last pipeline checkpoint written to disk. Survives OOM-kills.
+    Auth required."""
+    session_token = request.cookies.get("session")
+    if not session_token or not validate_session(session_token):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        import json as _json
+        with open(_PROGRESS_FILE) as f:
+            return _json.load(f)
+    except FileNotFoundError:
+        return {"step": None, "message": "No checkpoint file yet"}
+    except Exception as e:
+        return {"step": "read_error", "error": str(e)}
 
 
 @app.get("/api/video/last-error")
