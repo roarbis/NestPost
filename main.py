@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request, Response, Cookie
+from fastapi import FastAPI, HTTPException, Request, Response, Cookie, UploadFile, File, Form
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -1723,6 +1723,142 @@ async def replay_video_pipeline(req: ReplayVideoRequest, request: Request):
     except MemoryError:
         _checkpoint("replay_memory_error")
         raise HTTPException(status_code=500, detail="Out of memory in replay — same OOM as generate")
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback as _tb
+        _checkpoint("replay_exception", error=str(e)[:200])
+        raise HTTPException(status_code=500, detail=f"Replay failed: {e}\n{_tb.format_exc()[:500]}")
+    finally:
+        _shutil.rmtree(tmp_dir, ignore_errors=True)
+        _gc.collect()
+
+
+@app.post("/api/video/replay-upload")
+async def replay_video_upload(
+    request: Request,
+    video_file: UploadFile = File(...),
+    append_cta: bool = Form(True),
+    music_mood: str = Form("default"),
+):
+    """Replay post-processing on an UPLOADED video file (multipart form).
+    Same pipeline as /api/video/replay but takes a file instead of a URL —
+    useful when the video isn't already in R2. ZERO Atlas Cloud cost."""
+    session_token = request.cookies.get("session")
+    if not session_token or not validate_session(session_token):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    import base64 as _b64mod, gc as _gc, os as _os, shutil as _shutil, tempfile as _tf
+
+    tmp_dir = _tf.mkdtemp(prefix="nestpost_replay_")
+    main_path = _os.path.join(tmp_dir, "main.mp4")
+    cta_path  = _os.path.join(tmp_dir, "cta.mp4")
+    logo_path = _os.path.join(tmp_dir, "logo.png")
+    out_path  = _os.path.join(tmp_dir, "out.mp4")
+    try:
+        _checkpoint("replay_upload_start", filename=video_file.filename)
+        # Stream the upload to disk chunk-by-chunk — never holds the full
+        # file in memory.
+        with open(main_path, "wb") as f:
+            while True:
+                chunk = await video_file.read(65536)
+                if not chunk:
+                    break
+                f.write(chunk)
+        _checkpoint("replay_main_streamed", main_size_mb=round(_os.path.getsize(main_path) / 1024 / 1024, 1))
+
+        # CTA
+        cta_file_ok = False
+        if append_cta:
+            cta_url = get_setting("cta_video_url", "") or ""
+            if cta_url:
+                async with httpx.AsyncClient(timeout=60.0) as cl:
+                    async with cl.stream("GET", cta_url) as r:
+                        r.raise_for_status()
+                        with open(cta_path, "wb") as f:
+                            async for chunk in r.aiter_bytes(chunk_size=65536):
+                                f.write(chunk)
+                cta_file_ok = True
+
+        # Logo
+        logo_file_ok = False
+        logo_setting = get_setting("brand_logo_b64", "") or ""
+        if logo_setting:
+            try:
+                if "," in logo_setting[:64] and logo_setting.lstrip().startswith("data:"):
+                    logo_setting = logo_setting.split(",", 1)[1]
+                with open(logo_path, "wb") as f:
+                    f.write(_b64mod.b64decode(logo_setting))
+                logo_setting = None
+                logo_file_ok = True
+            except Exception:
+                pass
+        _gc.collect()
+        _checkpoint("replay_pre_postprocess", cta_ok=cta_file_ok, logo_ok=logo_file_ok)
+
+        try:
+            postprocess_video(
+                main_path=main_path, out_path=out_path,
+                cta_path=cta_path if cta_file_ok else None,
+                logo_path=logo_path if logo_file_ok else None,
+            )
+            final_source = out_path
+            _checkpoint("replay_postprocess_ok", out_size_mb=round(_os.path.getsize(out_path) / 1024 / 1024, 1))
+        except Exception as e:
+            final_source = main_path
+            _checkpoint("replay_postprocess_failed", error=str(e)[:200])
+
+        # Music
+        music_debug = "skipped (replay)"
+        mood = music_mood if music_mood != "default" else get_setting("music_default_mood", "auto")
+        if mood not in ("none", ""):
+            if mood == "auto":
+                mood = "chill"
+            music_url = get_setting(f"music_{mood}_url", "")
+            music_b64_setting = get_setting(f"music_{mood}_b64", "")
+            if music_url or music_b64_setting:
+                music_path = _os.path.join(tmp_dir, "music.mp3")
+                if music_b64_setting:
+                    with open(music_path, "wb") as f:
+                        f.write(_b64mod.b64decode(music_b64_setting))
+                elif music_url:
+                    async with httpx.AsyncClient(timeout=30.0) as cl:
+                        async with cl.stream("GET", music_url) as r:
+                            r.raise_for_status()
+                            with open(music_path, "wb") as f:
+                                async for chunk in r.aiter_bytes(chunk_size=65536):
+                                    f.write(chunk)
+                _checkpoint("replay_pre_music_mix", mood=mood)
+                try:
+                    music_out_path = _os.path.join(tmp_dir, "music_out.mp4")
+                    vol = float(get_setting("music_volume", "15")) / 100.0
+                    mix_music_into_video(final_source, music_path, music_out_path, volume=vol)
+                    final_source = music_out_path
+                    music_debug = f"mixed ({mood}, vol={int(vol*100)}%)"
+                    _checkpoint("replay_music_mixed", out_size_mb=round(_os.path.getsize(music_out_path) / 1024 / 1024, 1))
+                except Exception as e:
+                    music_debug = f"mix failed: {e}"
+                    _checkpoint("replay_music_mix_failed", error=str(e)[:200])
+
+        import uuid as _uuid_mod
+        import tempfile as _tempfile
+        _cleanup_expired_video_temps()
+        vid_uuid = _uuid_mod.uuid4().hex
+        persistent_path = _os.path.join(_tempfile.gettempdir(), f"nestpost_vid_{vid_uuid}.mp4")
+        _shutil.copy2(final_source, persistent_path)
+        _video_temp_files[vid_uuid] = {"path": persistent_path, "created": time.time()}
+        _checkpoint("replay_complete", final_size_mb=round(_os.path.getsize(persistent_path) / 1024 / 1024, 1))
+
+        return {
+            "status": "complete",
+            "video_url": f"/api/video/file/{vid_uuid}",
+            "video_temp_uuid": vid_uuid,
+            "music_debug": music_debug,
+            "mime_type": "video/mp4",
+        }
+    except MemoryError:
+        _checkpoint("replay_memory_error")
+        raise HTTPException(status_code=500, detail="Out of memory in replay")
     except HTTPException:
         raise
     except Exception as e:
