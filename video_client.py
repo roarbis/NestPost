@@ -1406,14 +1406,16 @@ def postprocess_video(
     # Build filter graph
     filter_parts: list[str] = []
 
-    # Main video stream: optionally overlay logo, always format to yuv420p,
-    # and force dimensions/SAR to known values so concat sees matching params.
+    # Main video stream: scale to target FIRST (cuts pixel work for subsequent
+    # filters by ~50% when source is 1080p), THEN overlay logo on the smaller
+    # frame. Final format normalisation last so concat sees matching params.
     main_norm = f"scale={main_w}:{main_h},setsar=1,setpts=PTS-STARTPTS,format=yuv420p"
     if have_logo:
         overlay_pos = _logo_overlay_pos(logo_position, logo_padding)
+        # Scale main first → cheap overlay on 720p frame → format
+        filter_parts.append(f"[0:v]{main_norm}[v0scaled]")
         filter_parts.append(f"[{logo_idx}:v]scale=-1:{logo_height}[logo]")
-        filter_parts.append(f"[0:v][logo]overlay={overlay_pos}:format=auto[v0pre]")
-        filter_parts.append(f"[v0pre]{main_norm}[v0]")
+        filter_parts.append(f"[v0scaled][logo]overlay={overlay_pos}:format=auto,format=yuv420p[v0]")
     else:
         filter_parts.append(f"[0:v]{main_norm}[v0]")
 
@@ -1453,7 +1455,7 @@ def postprocess_video(
         # - tune zerolatency: disables lookahead, reduces frame buffer
         # - x264-params: minimal references, no B-frames, no scenecut analysis
         + ["-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
-           "-threads", "2", "-crf", "26",
+           "-threads", "1", "-crf", "26",
            "-x264-params", "ref=1:bframes=0:no-scenecut=1:keyint=60"]
         + audio_codec
         + [out_path]
