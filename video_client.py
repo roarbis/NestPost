@@ -1055,22 +1055,104 @@ async def generate_video_atlascloud(
     return await _poll_atlascloud(prediction_id, api_key, out_path=out_path)
 
 
+async def _handle_inline_video_response(resp, out_path: str, content_length: int) -> dict:
+    """Atlas Cloud sometimes returns the video as a base64 string INSIDE the
+    polling JSON response (Veo 3.1 does this). For large responses (>2 MB),
+    parsing the whole JSON would 2-3× the memory cost and OOM on Render 512MB.
+    Instead: take the raw response bytes (already in resp.content), pull out
+    the base64 video field with a regex, decode chunk-by-chunk to disk, then
+    free everything."""
+    import re as _re
+    import base64 as _b64
+    import os as _os
+    _vc_checkpoint("inline_response_handling", size_mb=round(content_length / 1024 / 1024, 1))
+    try:
+        raw = resp.content  # already fully buffered by httpx for this request
+        # Look for common base64 video field names: "video", "video_base64",
+        # "output", "mp4". Regex finds the value (a long base64-ish string).
+        match = _re.search(
+            rb'"(?:video|video_base64|output|outputs|mp4|b64|data)"\s*:\s*"([A-Za-z0-9+/=]{1000,})"',
+            raw,
+        )
+        if not match:
+            _vc_checkpoint("inline_response_no_match")
+            # Fall back to normal JSON parsing — let the regular flow handle it
+            data = resp.json()
+            del raw
+            import gc as _gc; _gc.collect()
+            return {"status": "found_no_base64", "data": data}
+        b64_bytes = match.group(1)
+        _vc_checkpoint("inline_b64_extracted", b64_size_mb=round(len(b64_bytes) / 1024 / 1024, 1))
+        # Decode in chunks directly to disk (avoid holding raw + b64 + decoded all at once)
+        CHUNK = 65536  # bytes of b64 to decode per pass — multiple of 4
+        # b64 strlen must be multiple of 4; align CHUNK
+        total = 0
+        with open(out_path, "wb") as f:
+            for i in range(0, len(b64_bytes), CHUNK):
+                slice_ = b64_bytes[i:i + CHUNK]
+                # Pad last slice if needed
+                pad = (-len(slice_)) % 4
+                if pad:
+                    slice_ = slice_ + b"=" * pad
+                f.write(_b64.b64decode(slice_))
+                total = f.tell()
+        del raw, b64_bytes
+        import gc as _gc; _gc.collect()
+        _vc_checkpoint("inline_decoded_to_disk", out_size_mb=round(total / 1024 / 1024, 1))
+        return {
+            "status": "complete",
+            "video_path": out_path,
+            "mime_type": "video/mp4",
+        }
+    except Exception as e:
+        _vc_checkpoint("inline_handling_exception", error=str(e)[:200])
+        raise
+
+
+def _vc_checkpoint(step: str, **extra) -> None:
+    """Persist a pipeline checkpoint to /tmp so it survives OOM SIGKILL."""
+    try:
+        import json as _json
+        import resource as _resource
+        import time as _time
+        mem_kb = _resource.getrusage(_resource.RUSAGE_SELF).ru_maxrss
+        mem_mb = round(mem_kb / 1024, 1)
+        with open("/tmp/nestpost_video_progress.json", "w") as f:
+            _json.dump({"step": step, "mem_mb": mem_mb, "ts": _time.time(), **extra}, f)
+        print(f"[checkpoint] {step} — {mem_mb} MB")
+    except Exception as e:
+        print(f"[checkpoint] write failed: {e}")
+
+
 async def _poll_atlascloud(prediction_id: str, api_key: str, max_wait: int = 600, out_path: str = "") -> dict:
     """Poll Atlas Cloud prediction endpoint every 10 seconds until complete.
     Kling 3.0 Pro can take 8-10 minutes — max_wait set to 600s."""
     url = f"https://api.atlascloud.ai/api/v1/model/prediction/{prediction_id}"
     headers = {"Authorization": f"Bearer {api_key}"}
     elapsed = 0
+    poll_n = 0
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         while elapsed < max_wait:
             await asyncio.sleep(10)
             elapsed += 10
+            poll_n += 1
             try:
+                _vc_checkpoint("poll_request", poll=poll_n, elapsed=elapsed)
                 resp = await client.get(url, headers=headers)
                 resp.raise_for_status()
+                content_length = len(resp.content)
+                _vc_checkpoint("poll_response_received", poll=poll_n,
+                               content_length_kb=round(content_length / 1024, 1))
+                # If response body is large (>2 MB), Atlas Cloud is likely
+                # returning the video inline — parsing JSON would 2-3× the
+                # memory cost. Stream to disk and extract via partial parse.
+                if content_length > 2 * 1024 * 1024 and out_path:
+                    return await _handle_inline_video_response(resp, out_path, content_length)
                 data = resp.json()
+                _vc_checkpoint("poll_json_parsed", poll=poll_n)
             except Exception as e:
+                _vc_checkpoint("poll_exception", poll=poll_n, error=str(e)[:200])
                 continue
 
             status = (data.get("data", {}).get("status") or data.get("status", "")).lower()
@@ -1095,12 +1177,14 @@ async def _poll_atlascloud(prediction_id: str, api_key: str, max_wait: int = 600
                                  data.get("url") or data.get("video"))
 
                 if video_url:
+                    _vc_checkpoint("video_url_found", url_prefix=video_url[:80])
                     # Memory-efficient: stream chunks directly to disk if caller
                     # provided out_path. Avoids holding the full video + base64
                     # in RAM simultaneously (was OOM'ing on Render 512MB tier).
                     if out_path:
                         import os as _os
                         total = 0
+                        _vc_checkpoint("download_streaming_start")
                         async with httpx.AsyncClient(timeout=120.0) as dl:
                             async with dl.stream("GET", video_url) as vresp:
                                 vresp.raise_for_status()
@@ -1109,6 +1193,7 @@ async def _poll_atlascloud(prediction_id: str, api_key: str, max_wait: int = 600
                                         _f.write(chunk)
                                         total += len(chunk)
                         print(f"[atlascloud] streamed {total}B to {out_path} from {video_url[:80]}")
+                        _vc_checkpoint("download_streaming_done", total_mb=round(total / 1024 / 1024, 1))
                         return {
                             "status": "complete",
                             "video_path": out_path,
