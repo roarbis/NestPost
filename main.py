@@ -1580,6 +1580,160 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
         raise HTTPException(status_code=500, detail=f"Video generation failed: {detail}")
 
 
+class ReplayVideoRequest(BaseModel):
+    """Replay post-processing on an existing R2 video — zero Atlas Cloud cost.
+    Lets us test the CTA + logo + music + temp-file flow without paying for
+    a new generation."""
+    video_url: str = ""              # R2 URL to use as the 'main' video
+    content_id: int = 0              # OR a content id whose video_path will be used
+    append_cta: bool = True
+    music_mood: str = "default"
+
+
+@app.post("/api/video/replay")
+async def replay_video_pipeline(req: ReplayVideoRequest, request: Request):
+    """Re-run the full post-processing pipeline using an existing R2 video.
+    Same checkpoint instrumentation as /api/video/generate — useful for
+    debugging memory/pipeline issues without paying for a new generation."""
+    session_token = request.cookies.get("session")
+    if not session_token or not validate_session(session_token):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    # Resolve source video URL
+    source_url = req.video_url
+    if not source_url and req.content_id:
+        conn = get_conn()
+        row = conn.execute("SELECT video_path FROM content WHERE id = ?", (req.content_id,)).fetchone()
+        conn.close()
+        if row and row["video_path"] and str(row["video_path"]).startswith("http"):
+            source_url = row["video_path"]
+    if not source_url:
+        raise HTTPException(status_code=400, detail="Provide video_url or content_id with an R2-stored video")
+
+    import base64 as _b64mod, gc as _gc, os as _os, shutil as _shutil, tempfile as _tf
+
+    tmp_dir = _tf.mkdtemp(prefix="nestpost_replay_")
+    main_path = _os.path.join(tmp_dir, "main.mp4")
+    cta_path  = _os.path.join(tmp_dir, "cta.mp4")
+    logo_path = _os.path.join(tmp_dir, "logo.png")
+    out_path  = _os.path.join(tmp_dir, "out.mp4")
+    try:
+        _checkpoint("replay_start", source_url=source_url[:80])
+
+        # Stream the existing R2 video to main_path (mimics what generate does)
+        async with httpx.AsyncClient(timeout=120.0) as cl:
+            async with cl.stream("GET", source_url) as r:
+                r.raise_for_status()
+                with open(main_path, "wb") as f:
+                    async for chunk in r.aiter_bytes(chunk_size=65536):
+                        f.write(chunk)
+        _checkpoint("replay_main_streamed", main_size_mb=round(_os.path.getsize(main_path) / 1024 / 1024, 1))
+
+        # CTA
+        cta_file_ok = False
+        if req.append_cta:
+            cta_url = get_setting("cta_video_url", "") or ""
+            if cta_url:
+                async with httpx.AsyncClient(timeout=60.0) as cl:
+                    async with cl.stream("GET", cta_url) as r:
+                        r.raise_for_status()
+                        with open(cta_path, "wb") as f:
+                            async for chunk in r.aiter_bytes(chunk_size=65536):
+                                f.write(chunk)
+                cta_file_ok = True
+
+        # Logo
+        logo_file_ok = False
+        logo_setting = get_setting("brand_logo_b64", "") or ""
+        if logo_setting:
+            try:
+                if "," in logo_setting[:64] and logo_setting.lstrip().startswith("data:"):
+                    logo_setting = logo_setting.split(",", 1)[1]
+                with open(logo_path, "wb") as f:
+                    f.write(_b64mod.b64decode(logo_setting))
+                logo_setting = None
+                logo_file_ok = True
+            except Exception:
+                pass
+        _gc.collect()
+        _checkpoint("replay_pre_postprocess", cta_ok=cta_file_ok, logo_ok=logo_file_ok)
+
+        # FFmpeg postprocess
+        try:
+            postprocess_video(
+                main_path=main_path, out_path=out_path,
+                cta_path=cta_path if cta_file_ok else None,
+                logo_path=logo_path if logo_file_ok else None,
+            )
+            final_source = out_path
+            _checkpoint("replay_postprocess_ok", out_size_mb=round(_os.path.getsize(out_path) / 1024 / 1024, 1))
+        except Exception as e:
+            final_source = main_path
+            _checkpoint("replay_postprocess_failed", error=str(e)[:200])
+
+        # Music
+        music_debug = "skipped (replay)"
+        mood = req.music_mood if req.music_mood != "default" else get_setting("music_default_mood", "auto")
+        if mood not in ("none", ""):
+            if mood == "auto":
+                mood = "chill"
+            music_url = get_setting(f"music_{mood}_url", "")
+            music_b64_setting = get_setting(f"music_{mood}_b64", "")
+            if music_url or music_b64_setting:
+                music_path = _os.path.join(tmp_dir, f"music.mp3")
+                if music_b64_setting:
+                    with open(music_path, "wb") as f:
+                        f.write(_b64mod.b64decode(music_b64_setting))
+                elif music_url:
+                    async with httpx.AsyncClient(timeout=30.0) as cl:
+                        async with cl.stream("GET", music_url) as r:
+                            r.raise_for_status()
+                            with open(music_path, "wb") as f:
+                                async for chunk in r.aiter_bytes(chunk_size=65536):
+                                    f.write(chunk)
+                _checkpoint("replay_pre_music_mix", mood=mood)
+                try:
+                    music_out_path = _os.path.join(tmp_dir, "music_out.mp4")
+                    vol = float(get_setting("music_volume", "15")) / 100.0
+                    mix_music_into_video(final_source, music_path, music_out_path, volume=vol)
+                    final_source = music_out_path
+                    music_debug = f"mixed ({mood}, vol={int(vol*100)}%)"
+                    _checkpoint("replay_music_mixed", out_size_mb=round(_os.path.getsize(music_out_path) / 1024 / 1024, 1))
+                except Exception as e:
+                    music_debug = f"mix failed: {e}"
+                    _checkpoint("replay_music_mix_failed", error=str(e)[:200])
+
+        # Save to persistent temp + return URL
+        import uuid as _uuid_mod
+        import tempfile as _tempfile
+        _cleanup_expired_video_temps()
+        vid_uuid = _uuid_mod.uuid4().hex
+        persistent_path = _os.path.join(_tempfile.gettempdir(), f"nestpost_vid_{vid_uuid}.mp4")
+        _shutil.copy2(final_source, persistent_path)
+        _video_temp_files[vid_uuid] = {"path": persistent_path, "created": time.time()}
+        _checkpoint("replay_complete", final_size_mb=round(_os.path.getsize(persistent_path) / 1024 / 1024, 1))
+
+        return {
+            "status": "complete",
+            "video_url": f"/api/video/file/{vid_uuid}",
+            "video_temp_uuid": vid_uuid,
+            "music_debug": music_debug,
+            "mime_type": "video/mp4",
+        }
+    except MemoryError:
+        _checkpoint("replay_memory_error")
+        raise HTTPException(status_code=500, detail="Out of memory in replay — same OOM as generate")
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback as _tb
+        _checkpoint("replay_exception", error=str(e)[:200])
+        raise HTTPException(status_code=500, detail=f"Replay failed: {e}\n{_tb.format_exc()[:500]}")
+    finally:
+        _shutil.rmtree(tmp_dir, ignore_errors=True)
+        _gc.collect()
+
+
 @app.get("/api/video/last-progress")
 async def video_last_progress(request: Request):
     """Return the last pipeline checkpoint written to disk. Survives OOM-kills.
