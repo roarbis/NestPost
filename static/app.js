@@ -67,26 +67,40 @@ function showPage(page) {
   if (page === 'calendar') loadCalendar();
 }
 
+// Curated provider allow-list — only these appear in the nav sidebar +
+// wizard cards. Trims the list to what's relevant. To re-expose a provider,
+// just add its key back here (backend untouched, fully reversible).
+const PROVIDER_ALLOW = {
+  text:  ['groq', 'gemini', 'qwen'],
+  image: ['imagen4', 'imagen4_fast', 'gemini_native'],
+  video: ['atlascloud_video', 'kling', 'fal'],
+};
+function _pickProviders(obj, keys) {
+  return Object.fromEntries(
+    Object.entries(obj || {}).filter(([k]) => keys.includes(k))
+  );
+}
+
 async function loadHealth() {
   try {
     const data = await api('/api/provider-status');
-    renderProviderStatus('text-provider-status', data.text, {
-      ollama: 'Ollama', groq: 'Groq', gemini: 'Gemini', deepseek: 'Deepseek', qwen: 'Qwen',
+    renderProviderStatus('text-provider-status', _pickProviders(data.text, PROVIDER_ALLOW.text), {
+      groq: 'Groq', gemini: 'Gemini', qwen: 'Qwen',
     });
-    renderProviderStatus('image-provider-status', data.image, {
-      imagen4: 'Imagen 4', gemini_native: 'Nano Banana', gemini_native_paid: 'Nano Banana 2',
-      stability: 'Stability AI', dalle: 'DALL-E 3', flux_schnell: 'FLUX Schnell', flux_dev: 'FLUX Dev',
+    renderProviderStatus('image-provider-status', _pickProviders(data.image, PROVIDER_ALLOW.image), {
+      imagen4: 'Imagen 4', imagen4_fast: 'Imagen 4 Fast', gemini_native: 'Nano Banana',
     });
     if (data.video) {
-      renderProviderStatus('video-provider-status', data.video, {
-        veo3: 'Veo 3.1', kling: 'Kling AI', fal: 'WAN 2.1 (fal)', runway: 'Runway Gen-4', luma: 'Luma',
+      const vid = _pickProviders(data.video, PROVIDER_ALLOW.video);
+      renderProviderStatus('video-provider-status', vid, {
+        atlascloud_video: 'Atlas Cloud Video', kling: 'Kling AI', fal: 'FAL.AI',
       });
-      // Populate wizard video provider cards
-      _buildWizardVideoProviderCards(data.video);
+      // Populate wizard video provider cards (same allow-list)
+      _buildWizardVideoProviderCards(vid);
     }
     if (data.image) {
-      // Populate wizard image provider cards
-      _buildWizardImageProviderCards(data.image);
+      // Populate wizard image provider cards (same allow-list)
+      _buildWizardImageProviderCards(_pickProviders(data.image, PROVIDER_ALLOW.image));
     }
   } catch { /* silent */ }
 }
