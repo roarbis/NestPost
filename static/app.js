@@ -769,13 +769,9 @@ async function openModal(id) {
     const suggestBtn = document.getElementById('modal-video-suggest-btn');
     if (suggestBtn) suggestBtn.style.display = 'none';
 
-    const approveBtn = document.getElementById('modal-approve-btn');
-    approveBtn.innerHTML = item.status === 'approved' ? '<svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg> Approved' : '<svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg> Approve';
-    approveBtn.disabled = item.status === 'approved';
-    // Hide "View in Library" button from previous approval
-    const viewLibBtn = document.getElementById('modal-view-library-btn');
-    if (viewLibBtn) viewLibBtn.style.display = 'none';
-    document.getElementById('modal-save-btn').style.display = 'none';
+    // Footer is now static Done + View in Content Library (no per-item Approve state).
+    const saveBtn = document.getElementById('modal-save-btn');
+    if (saveBtn) saveBtn.style.display = 'none';
   } catch (err) { showToast(err.message, 'error'); closeModal(); }
 }
 
@@ -1798,11 +1794,12 @@ async function generateVideo() {
   result.style.display = 'none';
 
   try {
-    const appendCta = document.getElementById('modal-video-append-cta')?.checked ?? true;
     const negativePrompt = document.getElementById('modal-video-negative-prompt')?.value?.trim() || '';
     const resolution = document.getElementById('modal-video-resolution')?.value || '';
     const generateAudio = document.getElementById('modal-video-gen-audio')?.checked || false;
 
+    // New flow: backend generates → uploads RAW to R2 → returns video_url.
+    // No CTA/music here (handled by NestPost Video Studio). Auto-saved.
     const data = await api('/api/video/generate', 'POST', {
       content_id: modalItemId,
       prompt,
@@ -1810,39 +1807,35 @@ async function generateVideo() {
       model_id: _selectedAtlasModel,
       aspect_ratio: aspectRatio,
       duration,
-      append_cta: appendCta,
       negative_prompt: negativePrompt,
       resolution,
       generate_audio: generateAudio,
-      music_mood: document.getElementById('modal-video-music-mood')?.value || 'default',
     });
 
     if (data.video_url) {
-      // Option 1: server returns a streaming URL (no base64 in memory)
-      window._generatedVideoTempUuid = data.video_temp_uuid || '';
-      window._generatedVideoMime = data.mime_type || 'video/mp4';
-      window._generatedVideoB64 = null; // clear any stale legacy value
-
       const preview = document.getElementById('modal-video-preview');
       preview.src = data.video_url;
       result.style.display = '';
 
-      let toastMsg = 'Video generated — preview it below, then save or regenerate';
-      if (data.music_debug) toastMsg += ` (${data.music_debug})`;
-      showToast(toastMsg, 'success');
-    } else if (data.video_base64) {
-      // Legacy fallback (should not happen post-Option-1)
-      window._generatedVideoB64 = data.video_base64;
-      window._generatedVideoTempUuid = '';
-      window._generatedVideoMime = data.mime_type || 'video/mp4';
+      // Surface the R2 URL for hand-off to Video Studio
+      const urlWrap = document.getElementById('modal-video-r2url-wrap');
+      const urlField = document.getElementById('modal-video-r2url');
+      if (urlWrap && urlField) {
+        urlField.value = data.video_url;
+        urlWrap.style.display = '';
+      }
+      // Reflect saved video in the modal's "Current Video" section if present
+      const savedSection = document.getElementById('modal-saved-video');
+      const savedPrev = document.getElementById('modal-saved-video-preview');
+      if (savedSection && savedPrev) {
+        savedPrev.src = data.video_url + '?t=' + Date.now();
+        savedSection.style.display = '';
+      }
 
-      const preview = document.getElementById('modal-video-preview');
-      preview.src = `data:${data.mime_type};base64,${data.video_base64}`;
-      result.style.display = '';
-
-      let toastMsg = 'Video generated — preview it below, then save or regenerate';
-      if (data.music_debug) toastMsg += ` (${data.music_debug})`;
-      showToast(toastMsg, 'success');
+      const meta = data.size_mb ? ` (${data.size_mb} MB, ${data.elapsed_s}s)` : '';
+      showToast(`Video generated & saved to R2${meta} — copy the URL into Video Studio to brand it`, 'success');
+      if (currentPage === 'library') loadLibrary();
+      loadRecentContent();
     } else {
       showToast('No video returned — try a different model or prompt', 'error');
     }

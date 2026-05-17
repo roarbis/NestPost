@@ -1327,9 +1327,16 @@ class GenerateVideoRequest(BaseModel):
 
 @app.post("/api/video/generate")
 async def generate_video_endpoint(req: GenerateVideoRequest):
-    """Generate a video from a prompt using the selected provider.
-    Returns {status, video_base64, mime_type} on success."""
-    # Dedup: video generation is expensive — block duplicate clicks within 30s
+    """Generate a video and save the RAW result to R2 (new architecture).
+
+    No FFmpeg post-processing here anymore — CTA/logo/music branding is
+    handled by the separate NestPost Video Studio (VM). This endpoint just:
+      1. calls the provider (Atlas Cloud etc.)
+      2. streams the raw video to a temp file
+      3. uploads it to R2
+      4. stores the R2 URL on the content row
+      5. returns {status, video_url, content_id}
+    """
     cached = _check_idempotency(req.idempotency_key)
     if cached:
         return cached
@@ -1340,11 +1347,10 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
     if not row:
         raise HTTPException(status_code=404, detail="Content not found")
 
-    # Collect video gen API keys
     api_keys = {
         "gemini": get_setting("gemini_api_key", ""),
-        "kling_access": get_setting("kling_api_key", ""),    # Access Key (AK)
-        "kling_secret": get_setting("kling_secret_key", ""), # Secret Key (SK)
+        "kling_access": get_setting("kling_api_key", ""),
+        "kling_secret": get_setting("kling_secret_key", ""),
         "runway": get_setting("runway_api_key", ""),
         "luma": get_setting("luma_api_key", ""),
         "fal": get_setting("fal_api_key", ""),
@@ -1352,25 +1358,17 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
         "atlascloud_video_model": req.model_id or get_setting("atlascloud_video_model", "kwaivgi/kling-v3.0-pro/text-to-video"),
     }
 
-    # Pre-create tmp_dir + main_path so generate_video can stream straight to disk
-    # (v1.3.0 — eliminates the b64 round-trip that was OOM'ing on Render 512MB)
     import base64 as _b64mod
-    import gc as _gc
     import os as _os
     import shutil as _shutil
     import tempfile as _tf
+    import time as _time
 
-    tmp_dir = _tf.mkdtemp(prefix="nestpost_video_")
+    tmp_dir = _tf.mkdtemp(prefix="nestpost_gen_")
     main_path = _os.path.join(tmp_dir, "main.mp4")
-    cta_path  = _os.path.join(tmp_dir, "cta.mp4")
-    logo_path = _os.path.join(tmp_dir, "logo.png")
-    out_path  = _os.path.join(tmp_dir, "out.mp4")
+    t0 = _time.time()
 
     try:
-        _checkpoint("start", provider=req.provider, model=req.model_id)
-        # Pass out_path so Atlas Cloud streams chunks directly to main_path —
-        # no base64, no big buffer. Other providers still return video_base64
-        # (handled by the legacy decode-to-disk path below).
         result = await generate_video(
             prompt=req.prompt,
             provider=req.provider,
@@ -1384,223 +1382,76 @@ async def generate_video_endpoint(req: GenerateVideoRequest):
         )
 
         if result.get("status") == "rate_limited":
-            _shutil.rmtree(tmp_dir, ignore_errors=True)
-            return JSONResponse(status_code=429, content=result)
-
+            raise HTTPException(status_code=429, detail=result.get("error", "Rate limited — try again shortly"))
         if result.get("status") != "complete":
-            _shutil.rmtree(tmp_dir, ignore_errors=True)
             raise HTTPException(status_code=500, detail=result.get("error", "Video generation failed"))
 
-        mime_type = result.get("mime_type", "video/mp4")
-        _checkpoint("provider_complete", path_or_b64="path" if result.get("video_path") else "b64")
+        # Get raw video onto disk (streamed file OR legacy base64)
+        if result.get("video_path") and _os.path.exists(result["video_path"]):
+            pass  # already at main_path
+        elif result.get("video_base64"):
+            with open(main_path, "wb") as _f:
+                _f.write(_b64mod.b64decode(result["video_base64"]))
+        else:
+            raise HTTPException(status_code=500, detail="Provider returned no video data")
 
-        print(f"[video-postprocess] append_cta_requested={req.append_cta} provider={req.provider} model={req.model_id}")
+        raw_size = _os.path.getsize(main_path)
+        if raw_size == 0:
+            raise HTTPException(status_code=500, detail="Generated video is empty")
 
-        try:
-            # Did the provider stream directly to disk? (Atlas Cloud, v1.3.0+)
-            if result.get("video_path") and _os.path.exists(result["video_path"]):
-                # main_path is already populated — no decode needed
-                main_size = _os.path.getsize(main_path)
-                print(f"[video-postprocess] main streamed to disk ({main_size}B)")
-                _checkpoint("main_streamed", main_size_mb=round(main_size / 1024 / 1024, 1))
-            else:
-                # Legacy b64 path (other providers): decode to disk, then free
-                video_b64 = result["video_base64"]
-                with open(main_path, "wb") as _f:
-                    _f.write(_b64mod.b64decode(video_b64))
-                main_size = _os.path.getsize(main_path)
-                print(f"[video-postprocess] main decoded to disk ({main_size}B)")
-                video_b64 = None
-                del result["video_base64"]
-                _gc.collect()
-                _checkpoint("main_decoded", main_size_mb=round(main_size / 1024 / 1024, 1))
+        # Upload RAW video to R2
+        r2 = _get_r2_config()
+        if not is_r2_configured(r2):
+            raise HTTPException(
+                status_code=400,
+                detail="R2 is not configured — set R2 credentials in Settings so generated videos can be saved.",
+            )
+        with open(main_path, "rb") as _f:
+            video_b64 = _b64mod.b64encode(_f.read()).decode()
+        video_url = upload_video_to_r2(
+            video_base64=video_b64,
+            content_id=req.content_id,
+            mime_type="video/mp4",
+            account_id=r2["account_id"],
+            access_key_id=r2["access_key_id"],
+            secret_access_key=r2["secret_access_key"],
+            bucket_name=r2["bucket_name"],
+            public_url=r2["public_url"],
+        )
+        video_b64 = None
 
-            # ── CTA: resolve settings → write to disk ──
-            cta_file_ok = False
-            if req.append_cta:
-                cta_url = get_setting("cta_video_url", "") or ""
-                cta_b64_setting = get_setting("cta_video_b64", "") or ""
-                print(f"[video-postprocess] cta_url_set={bool(cta_url)} cta_b64_set={bool(cta_b64_setting)}")
-
-                if cta_b64_setting:
-                    try:
-                        with open(cta_path, "wb") as _f:
-                            _f.write(_b64mod.b64decode(cta_b64_setting))
-                        cta_b64_setting = None
-                        cta_file_ok = True
-                        print(f"[video-postprocess] CTA (from b64 setting) written ({_os.path.getsize(cta_path)}B)")
-                    except Exception as e:
-                        print(f"[video-postprocess] CTA b64 decode FAILED: {e}")
-                elif cta_url:
-                    try:
-                        import httpx as _httpx
-                        async with _httpx.AsyncClient(timeout=60.0) as _cl:
-                            async with _cl.stream("GET", cta_url) as _r:
-                                _r.raise_for_status()
-                                with open(cta_path, "wb") as _f:
-                                    async for chunk in _r.aiter_bytes(chunk_size=65536):
-                                        _f.write(chunk)
-                        cta_file_ok = True
-                        print(f"[video-postprocess] CTA streamed from R2 ({_os.path.getsize(cta_path)}B)")
-                    except Exception as e:
-                        print(f"[video-postprocess] CTA fetch FAILED: {e}")
-                else:
-                    print(f"[video-postprocess] CTA skipped — no cta_video_url or cta_video_b64 set")
-            else:
-                print(f"[video-postprocess] CTA skipped — append_cta=False on request")
-
-            # ── Logo: resolve brand_logo_b64 setting → write to disk ──
-            logo_file_ok = False
-            logo_setting = get_setting("brand_logo_b64", "") or ""
-            if logo_setting:
-                try:
-                    # Strip data URL prefix if present
-                    if "," in logo_setting[:64] and logo_setting.lstrip().startswith("data:"):
-                        logo_setting = logo_setting.split(",", 1)[1]
-                    with open(logo_path, "wb") as _f:
-                        _f.write(_b64mod.b64decode(logo_setting))
-                    logo_setting = None
-                    logo_file_ok = True
-                    print(f"[video-postprocess] logo written ({_os.path.getsize(logo_path)}B)")
-                except Exception as e:
-                    print(f"[video-postprocess] logo decode FAILED: {e}")
-            else:
-                print(f"[video-postprocess] logo skipped — brand_logo_b64 not set")
-            _gc.collect()
-
-            _checkpoint("pre_postprocess", cta_ok=cta_file_ok, logo_ok=logo_file_ok)
-            # ── Single ffmpeg pass ──
-            try:
-                postprocess_video(
-                    main_path=main_path,
-                    out_path=out_path,
-                    cta_path=cta_path if cta_file_ok else None,
-                    logo_path=logo_path if logo_file_ok else None,
-                )
-                final_source = out_path
-                print(f"[video-postprocess] postprocess OK ({_os.path.getsize(out_path)}B)")
-                _checkpoint("postprocess_ok", out_size_mb=round(_os.path.getsize(out_path) / 1024 / 1024, 1))
-            except Exception as e:
-                print(f"[video-postprocess] postprocess FAILED, returning raw main: {e}")
-                final_source = main_path
-                _checkpoint("postprocess_failed", error=str(e))
-
-            # ── Music mixing ──
-            music_debug = "no music"
-            effective_music_mood = req.music_mood
-            if effective_music_mood == "default":
-                effective_music_mood = get_setting("music_default_mood", "auto")
-            if effective_music_mood in ("none", ""):
-                music_debug = "music disabled"
-            else:
-                if effective_music_mood == "auto":
-                    # Query content item for auto-mood selection
-                    try:
-                        _conn = get_conn()
-                        _row = _conn.execute("SELECT content_type, topic FROM content WHERE id = ?", (req.content_id,)).fetchone()
-                        _conn.close()
-                        effective_music_mood = _auto_music_mood(
-                            content_type=_row["content_type"] if _row else "",
-                            tone=req.tone if hasattr(req, "tone") else "",
-                            platform=req.provider,
-                        )
-                    except Exception:
-                        effective_music_mood = "chill"
-
-                music_url = get_setting(f"music_{effective_music_mood}_url", "")
-                music_b64_setting = get_setting(f"music_{effective_music_mood}_b64", "")
-
-                if not music_url and not music_b64_setting:
-                    music_debug = f"no track uploaded for '{effective_music_mood}' mood — add one in Settings → Music Library"
-                    print(f"[music] {music_debug}")
-                else:
-                    music_file_path = _os.path.join(tmp_dir, f"music_{effective_music_mood}.mp3")
-                    music_file_ok = False
-                    if music_b64_setting:
-                        try:
-                            with open(music_file_path, "wb") as _f:
-                                _f.write(_b64mod.b64decode(music_b64_setting))
-                            music_file_ok = True
-                            print(f"[music] decoded b64 for mood={effective_music_mood} ({_os.path.getsize(music_file_path)}B)")
-                        except Exception as e:
-                            music_debug = f"b64 decode failed: {e}"
-                            print(f"[music] {music_debug}")
-                    elif music_url:
-                        try:
-                            import httpx as _httpx
-                            async with _httpx.AsyncClient(timeout=30.0) as _cl:
-                                _r = await _cl.get(music_url)
-                                _r.raise_for_status()
-                                with open(music_file_path, "wb") as _f:
-                                    _f.write(_r.content)
-                            music_file_ok = True
-                            print(f"[music] fetched URL for mood={effective_music_mood} ({_os.path.getsize(music_file_path)}B)")
-                        except Exception as e:
-                            music_debug = f"URL fetch failed: {e}"
-                            print(f"[music] {music_debug}")
-
-                    if music_file_ok:
-                        _checkpoint("pre_music_mix", mood=effective_music_mood)
-                        music_out_path = _os.path.join(tmp_dir, "music_out.mp4")
-                        try:
-                            music_vol = float(get_setting("music_volume", "15")) / 100.0
-                            mix_music_into_video(final_source, music_file_path, music_out_path, volume=music_vol)
-                            final_source = music_out_path
-                            music_debug = f"music mixed ✓ ({effective_music_mood}, vol={int(music_vol*100)}%)"
-                            print(f"[music] {music_debug}")
-                            _checkpoint("music_mixed", out_size_mb=round(_os.path.getsize(music_out_path) / 1024 / 1024, 1))
-                        except Exception as e:
-                            music_debug = f"FFmpeg mix failed: {e}"
-                            print(f"[music] {music_debug}")
-                            _checkpoint("music_mix_failed", error=str(e))
-
-            # ── Move final video to persistent temp file (streaming response) ──
-            import uuid as _uuid_mod
-            import tempfile as _tempfile
-            _cleanup_expired_video_temps()  # lazy GC of old temp files
-            vid_uuid = _uuid_mod.uuid4().hex
-            persistent_path = _os.path.join(_tempfile.gettempdir(), f"nestpost_vid_{vid_uuid}.mp4")
-            _shutil.copy2(final_source, persistent_path)
-            _video_temp_files[vid_uuid] = {"path": persistent_path, "created": time.time()}
-            print(f"[video-postprocess] temp file saved: {persistent_path} ({_os.path.getsize(persistent_path)}B)")
-            _checkpoint("complete", final_size_mb=round(_os.path.getsize(persistent_path) / 1024 / 1024, 1))
-        finally:
-            _shutil.rmtree(tmp_dir, ignore_errors=True)
-            _gc.collect()
+        # Store the R2 URL on the content row
+        conn = get_conn()
+        conn.execute(
+            "UPDATE content SET video_path = ?, video_prompt = ?, video_data = NULL, video_mime = ? WHERE id = ?",
+            (video_url, req.prompt, "video/mp4", req.content_id),
+        )
+        conn.commit()
+        updated = conn.execute(f"SELECT {CONTENT_COLS} FROM content WHERE id = ?", (req.content_id,)).fetchone()
+        conn.close()
 
         video_result = {
             "status": "complete",
-            "video_url": f"/api/video/file/{vid_uuid}",
-            "video_temp_uuid": vid_uuid,
-            "mime_type": mime_type,
+            "video_url": video_url,
+            "content_id": req.content_id,
             "provider": req.provider,
+            "model_id": req.model_id,
             "prompt": req.prompt,
-            "music_debug": music_debug,
+            "size_mb": round(raw_size / 1024 / 1024, 1),
+            "elapsed_s": round(_time.time() - t0, 1),
+            "content": dict(updated) if updated else None,
         }
         _store_idempotency(req.idempotency_key, video_result)
         return video_result
-    except MemoryError:
-        import traceback as _tb
-        _shutil.rmtree(tmp_dir, ignore_errors=True)
-        _last_video_error.update({"type": "MemoryError", "detail": "OOM", "traceback": _tb.format_exc(), "ts": time.time()})
-        print(f"[video-generate] MemoryError:\n{_tb.format_exc()}")
-        raise HTTPException(status_code=500, detail="Out of memory — video too large for this server tier. Try a shorter duration or lower resolution.")
-    except ValueError as e:
-        import traceback as _tb
-        _shutil.rmtree(tmp_dir, ignore_errors=True)
-        _last_video_error.update({"type": type(e).__name__, "detail": str(e), "traceback": _tb.format_exc(), "ts": time.time()})
-        print(f"[video-generate] ValueError: {e}\n{_tb.format_exc()}")
-        raise HTTPException(status_code=400, detail=str(e))
     except HTTPException:
-        _shutil.rmtree(tmp_dir, ignore_errors=True)
         raise
     except Exception as e:
         import traceback as _tb
-        _shutil.rmtree(tmp_dir, ignore_errors=True)
         detail = str(e) or repr(e) or "Unknown error — check server logs"
-        _last_video_error.update({"type": type(e).__name__, "detail": detail, "traceback": _tb.format_exc(), "ts": time.time()})
         print(f"[video-generate] {type(e).__name__}: {detail}\n{_tb.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Video generation failed: {detail}")
+    finally:
+        _shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 class ReplayVideoRequest(BaseModel):

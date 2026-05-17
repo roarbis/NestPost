@@ -184,6 +184,55 @@ ATLASCLOUD_MODELS = {
 ATLASCLOUD_MODELS_SORTED = sorted(ATLASCLOUD_MODELS.items(), key=lambda x: x[1]["cost_per_sec"])
 
 
+def _classify_aspect(a: str) -> str:
+    """Return 'portrait' | 'landscape' | 'square' from a ratio (16:9) or size (1280x720) string."""
+    a = (a or "").strip().lower()
+    w = h = None
+    if ":" in a:
+        try:
+            w, h = (float(x) for x in a.split(":", 1))
+        except Exception:
+            return "landscape"
+    elif "x" in a:
+        try:
+            w, h = (float(x) for x in a.split("x", 1))
+        except Exception:
+            return "landscape"
+    else:
+        return "landscape"
+    if abs(w - h) < 0.01:
+        return "square"
+    return "portrait" if h > w else "landscape"
+
+
+def _normalize_aspect_for_model(requested: str, options: dict) -> str:
+    """Map a requested aspect (any format) to a valid key for THIS model.
+    Atlas Cloud 400s if e.g. Sora gets '9:16' instead of '720x1280'."""
+    keys = list(options.keys())
+    if not keys:
+        return requested
+    if requested in keys:
+        return requested
+    want = _classify_aspect(requested)
+    for k in keys:
+        if _classify_aspect(k) == want:
+            return k
+    return keys[0]  # safe fallback (first valid option for this model)
+
+
+def _normalize_duration_for_model(requested: int, opts: list, default: int) -> int:
+    """Snap requested duration to the nearest value the model actually allows."""
+    if not opts:
+        return requested
+    try:
+        requested = int(requested)
+    except Exception:
+        return default or opts[0]
+    if requested in opts:
+        return requested
+    return min(opts, key=lambda x: abs(x - requested))
+
+
 # ── Video prompt generation — multi-provider with auto-fallback ───────────────
 # Provider try-order. The caller passes a preferred_provider; the remaining
 # configured providers are tried in this order if the first one fails.
@@ -1011,12 +1060,23 @@ async def generate_video_atlascloud(
 
     model_cfg = ATLASCLOUD_MODELS.get(model, {})
 
+    # Normalise aspect + duration to values THIS model accepts. Frontend may
+    # send a generic "9:16"/duration that Sora (wants "720x1280", [4,8,12])
+    # rejects with 400. This guarantees a valid payload regardless of input.
+    norm_aspect = _normalize_aspect_for_model(
+        aspect_ratio, model_cfg.get("aspect_options", {})
+    )
+    norm_duration = _normalize_duration_for_model(
+        duration, model_cfg.get("duration_options", []),
+        model_cfg.get("duration_default", duration),
+    )
+
     # Build payload dynamically based on model config
-    payload = {"model": model, "prompt": prompt, "duration": duration}
+    payload = {"model": model, "prompt": prompt, "duration": norm_duration}
 
     # Aspect ratio / size — Sora uses "size", others use "aspect_ratio"
     aspect_field = model_cfg.get("aspect_field", "aspect_ratio")
-    payload[aspect_field] = aspect_ratio
+    payload[aspect_field] = norm_aspect
 
     # Negative prompt — only for models that support it
     if negative_prompt and model_cfg.get("supports_negative_prompt", False):
@@ -1045,6 +1105,16 @@ async def generate_video_atlascloud(
             return {"status": "error", "error": "Atlas Cloud: insufficient credits — top up at atlascloud.ai/console/billing"}
         if resp.status_code == 401:
             return {"status": "error", "error": "Atlas Cloud: invalid API key — check Settings"}
+        if resp.status_code == 400:
+            try:
+                _b = resp.json()
+                _msg = _b.get("message") or _b.get("error") or resp.text[:300]
+            except Exception:
+                _msg = resp.text[:300]
+            return {"status": "error", "error": (
+                f"Atlas Cloud rejected the request for {model_cfg.get('label', model)}: {_msg}. "
+                f"Sent {aspect_field}={norm_aspect}, duration={norm_duration}s."
+            )}
         resp.raise_for_status()
         data = resp.json()
 
