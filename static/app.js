@@ -67,26 +67,40 @@ function showPage(page) {
   if (page === 'calendar') loadCalendar();
 }
 
+// Curated provider allow-list — only these appear in the nav sidebar +
+// wizard cards. Trims the list to what's relevant. To re-expose a provider,
+// just add its key back here (backend untouched, fully reversible).
+const PROVIDER_ALLOW = {
+  text:  ['groq', 'gemini', 'qwen'],
+  image: ['imagen4', 'imagen4_fast', 'gemini_native'],
+  video: ['atlascloud_video', 'kling', 'fal'],
+};
+function _pickProviders(obj, keys) {
+  return Object.fromEntries(
+    Object.entries(obj || {}).filter(([k]) => keys.includes(k))
+  );
+}
+
 async function loadHealth() {
   try {
     const data = await api('/api/provider-status');
-    renderProviderStatus('text-provider-status', data.text, {
-      ollama: 'Ollama', groq: 'Groq', gemini: 'Gemini', deepseek: 'Deepseek', qwen: 'Qwen',
+    renderProviderStatus('text-provider-status', _pickProviders(data.text, PROVIDER_ALLOW.text), {
+      groq: 'Groq', gemini: 'Gemini', qwen: 'Qwen',
     });
-    renderProviderStatus('image-provider-status', data.image, {
-      imagen4: 'Imagen 4', gemini_native: 'Nano Banana', gemini_native_paid: 'Nano Banana 2',
-      stability: 'Stability AI', dalle: 'DALL-E 3', flux_schnell: 'FLUX Schnell', flux_dev: 'FLUX Dev',
+    renderProviderStatus('image-provider-status', _pickProviders(data.image, PROVIDER_ALLOW.image), {
+      imagen4: 'Imagen 4', imagen4_fast: 'Imagen 4 Fast', gemini_native: 'Nano Banana',
     });
     if (data.video) {
-      renderProviderStatus('video-provider-status', data.video, {
-        veo3: 'Veo 3.1', kling: 'Kling AI', fal: 'WAN 2.1 (fal)', runway: 'Runway Gen-4', luma: 'Luma',
+      const vid = _pickProviders(data.video, PROVIDER_ALLOW.video);
+      renderProviderStatus('video-provider-status', vid, {
+        atlascloud_video: 'Atlas Cloud Video', kling: 'Kling AI', fal: 'FAL.AI',
       });
-      // Populate wizard video provider cards
-      _buildWizardVideoProviderCards(data.video);
+      // Populate wizard video provider cards (same allow-list)
+      _buildWizardVideoProviderCards(vid);
     }
     if (data.image) {
-      // Populate wizard image provider cards
-      _buildWizardImageProviderCards(data.image);
+      // Populate wizard image provider cards (same allow-list)
+      _buildWizardImageProviderCards(_pickProviders(data.image, PROVIDER_ALLOW.image));
     }
   } catch { /* silent */ }
 }
@@ -755,13 +769,9 @@ async function openModal(id) {
     const suggestBtn = document.getElementById('modal-video-suggest-btn');
     if (suggestBtn) suggestBtn.style.display = 'none';
 
-    const approveBtn = document.getElementById('modal-approve-btn');
-    approveBtn.innerHTML = item.status === 'approved' ? '<svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg> Approved' : '<svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg> Approve';
-    approveBtn.disabled = item.status === 'approved';
-    // Hide "View in Library" button from previous approval
-    const viewLibBtn = document.getElementById('modal-view-library-btn');
-    if (viewLibBtn) viewLibBtn.style.display = 'none';
-    document.getElementById('modal-save-btn').style.display = 'none';
+    // Footer is now static Done + View in Content Library (no per-item Approve state).
+    const saveBtn = document.getElementById('modal-save-btn');
+    if (saveBtn) saveBtn.style.display = 'none';
   } catch (err) { showToast(err.message, 'error'); closeModal(); }
 }
 
@@ -843,16 +853,22 @@ async function approveItem() {
     } catch (e) { /* non-fatal — continue with approve */ }
   }
 
-  // Video: base64 in memory that hasn't been saved yet
-  if (window._generatedVideoB64) {
+  // Video: unsaved generated video — save before approving
+  if (window._generatedVideoTempUuid || window._generatedVideoB64) {
     try {
       const prompt = document.getElementById('modal-video-prompt')?.value || '';
-      const data = await api('/api/video/save', 'POST', {
+      const savePayload = {
         content_id: modalItemId,
-        video_base64: window._generatedVideoB64,
         video_prompt: prompt,
         mime_type: window._generatedVideoMime || 'video/mp4',
-      });
+      };
+      if (window._generatedVideoTempUuid) {
+        savePayload.video_temp_uuid = window._generatedVideoTempUuid;
+      } else {
+        savePayload.video_base64 = window._generatedVideoB64;
+      }
+      const data = await api('/api/video/save', 'POST', savePayload);
+      window._generatedVideoTempUuid = null;
       window._generatedVideoB64 = null;
       window._generatedVideoMime = null;
       const savedSection = document.getElementById('modal-saved-video');
@@ -1778,11 +1794,12 @@ async function generateVideo() {
   result.style.display = 'none';
 
   try {
-    const appendCta = document.getElementById('modal-video-append-cta')?.checked ?? true;
     const negativePrompt = document.getElementById('modal-video-negative-prompt')?.value?.trim() || '';
     const resolution = document.getElementById('modal-video-resolution')?.value || '';
     const generateAudio = document.getElementById('modal-video-gen-audio')?.checked || false;
 
+    // New flow: backend generates → uploads RAW to R2 → returns video_url.
+    // No CTA/music here (handled by NestPost Video Studio). Auto-saved.
     const data = await api('/api/video/generate', 'POST', {
       content_id: modalItemId,
       prompt,
@@ -1790,27 +1807,35 @@ async function generateVideo() {
       model_id: _selectedAtlasModel,
       aspect_ratio: aspectRatio,
       duration,
-      append_cta: appendCta,
       negative_prompt: negativePrompt,
       resolution,
       generate_audio: generateAudio,
-      music_mood: document.getElementById('modal-video-music-mood')?.value || 'default',
     });
 
-    if (data.video_base64) {
-      window._generatedVideoB64 = data.video_base64;
-      window._generatedVideoMime = data.mime_type || 'video/mp4';
-
+    if (data.video_url) {
       const preview = document.getElementById('modal-video-preview');
-      preview.src = `data:${data.mime_type};base64,${data.video_base64}`;
+      preview.src = data.video_url;
       result.style.display = '';
 
-      // Show music mixing result
-      let toastMsg = 'Video generated — preview it below, then save or regenerate';
-      if (data.music_debug) {
-        toastMsg += ` (${data.music_debug})`;
+      // Surface the R2 URL for hand-off to Video Studio
+      const urlWrap = document.getElementById('modal-video-r2url-wrap');
+      const urlField = document.getElementById('modal-video-r2url');
+      if (urlWrap && urlField) {
+        urlField.value = data.video_url;
+        urlWrap.style.display = '';
       }
-      showToast(toastMsg, 'success');
+      // Reflect saved video in the modal's "Current Video" section if present
+      const savedSection = document.getElementById('modal-saved-video');
+      const savedPrev = document.getElementById('modal-saved-video-preview');
+      if (savedSection && savedPrev) {
+        savedPrev.src = data.video_url + '?t=' + Date.now();
+        savedSection.style.display = '';
+      }
+
+      const meta = data.size_mb ? ` (${data.size_mb} MB, ${data.elapsed_s}s)` : '';
+      showToast(`Video generated & saved to R2${meta} — copy the URL into Video Studio to brand it`, 'success');
+      if (currentPage === 'library') loadLibrary();
+      loadRecentContent();
     } else {
       showToast('No video returned — try a different model or prompt', 'error');
     }
@@ -1832,16 +1857,24 @@ function regenerateVideo() {
 }
 
 async function saveGeneratedVideo() {
-  if (!window._generatedVideoB64 || !modalItemId) return;
+  if (!window._generatedVideoTempUuid && !window._generatedVideoB64) return;
+  if (!modalItemId) return;
   const prompt = document.getElementById('modal-video-prompt')?.value || '';
 
+  // Build save payload — prefer temp UUID (Option 1), fall back to b64 (legacy)
+  const savePayload = {
+    content_id: modalItemId,
+    video_prompt: prompt,
+    mime_type: window._generatedVideoMime || 'video/mp4',
+  };
+  if (window._generatedVideoTempUuid) {
+    savePayload.video_temp_uuid = window._generatedVideoTempUuid;
+  } else {
+    savePayload.video_base64 = window._generatedVideoB64;
+  }
+
   try {
-    const data = await api('/api/video/save', 'POST', {
-      content_id: modalItemId,
-      video_base64: window._generatedVideoB64,
-      video_prompt: prompt,
-      mime_type: window._generatedVideoMime || 'video/mp4',
-    });
+    const data = await api('/api/video/save', 'POST', savePayload);
 
     const savedSection = document.getElementById('modal-saved-video');
     const preview = document.getElementById('modal-saved-video-preview');
@@ -2889,19 +2922,31 @@ async function wizardGenerateVideo() {
     });
     clearInterval(elapsedTimer);
 
-    // Save the video
-    if (data.video_base64) {
-      await api('/api/video/save', 'POST', {
+    // Save the video — use temp UUID (Option 1) or legacy b64
+    const hasVideo = data.video_url || data.video_base64;
+    if (hasVideo) {
+      const wiz_savePayload = {
         content_id: contentId,
-        video_base64: data.video_base64,
         video_prompt: prompt,
         mime_type: data.mime_type || 'video/mp4',
-      });
+      };
+      if (data.video_temp_uuid) {
+        wiz_savePayload.video_temp_uuid = data.video_temp_uuid;
+      } else if (data.video_base64) {
+        wiz_savePayload.video_base64 = data.video_base64;
+      }
+      await api('/api/video/save', 'POST', wiz_savePayload);
     }
 
     // Show inline video player
     if (vidResult) {
-      if (data.video_base64) {
+      if (data.video_url) {
+        vidResult.innerHTML = `
+          <div style="border-radius:12px;overflow:hidden;margin-bottom:10px;">
+            <video controls style="width:100%;display:block;border-radius:12px;" src="${data.video_url}"></video>
+          </div>
+          <div style="font-size:0.8rem;color:#86efac;font-weight:600;">✓ Video saved to post</div>`;
+      } else if (data.video_base64) {
         vidResult.innerHTML = `
           <div style="border-radius:12px;overflow:hidden;margin-bottom:10px;">
             <video controls style="width:100%;display:block;border-radius:12px;" src="data:${data.mime_type || 'video/mp4'};base64,${data.video_base64}"></video>
@@ -3186,7 +3231,8 @@ async function api(url, method = 'GET', body = null) {
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || err.error || err.message || res.statusText);
+    const msg = err.detail || err.error || err.message || res.statusText || `HTTP ${res.status} error`;
+    throw new Error(msg);
   }
   return res.json();
 }
