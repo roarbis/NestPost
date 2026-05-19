@@ -233,6 +233,39 @@ def _normalize_duration_for_model(requested: int, opts: list, default: int) -> i
     return min(opts, key=lambda x: abs(x - requested))
 
 
+# Voice-assistant wake-words / names that Google Veo (and others) silently
+# REJECT. Order matters: multi-word patterns before single-word fallbacks.
+_WAKE_WORD_SUBS = [
+    (r'\b(?:hey|ok|okay)\s+google\b', 'a voice command'),
+    (r'\bgoogle\s+assistant\b',       'the voice assistant'),
+    (r'\bhey\s+siri\b',               'a voice command'),
+    (r'\bhey\s+alexa\b',              'a voice command'),
+    (r'\bamazon\s+alexa\b',           'the voice assistant'),
+    (r'\bhey\s+bixby\b',              'a voice command'),
+    (r'\balexa\b',                    'the voice assistant'),
+    (r'\bsiri\b',                     'the voice assistant'),
+    (r'\bbixby\b',                    'the voice assistant'),
+]
+
+
+def _sanitize_prompt_for_video(prompt: str) -> str:
+    """Strip voice-assistant wake-words / assistant names from a prompt.
+
+    Google Veo silently fails generations whose prompts script real
+    assistant wake-words ('Hey Google', 'Alexa', 'Hey Siri') or impersonate
+    a named assistant. The prompt-generator is instructed to avoid these,
+    but this is a defensive net for manually-written or previously-saved
+    prompts. Applies to all providers (harmless for those that allow them).
+    """
+    if not prompt:
+        return prompt
+    import re as _re
+    out = prompt
+    for pat, repl in _WAKE_WORD_SUBS:
+        out = _re.sub(pat, repl, out, flags=_re.IGNORECASE)
+    return out
+
+
 # ── Video prompt generation — multi-provider with auto-fallback ───────────────
 # Provider try-order. The caller passes a preferred_provider; the remaining
 # configured providers are tried in this order if the first one fails.
@@ -325,7 +358,8 @@ async def generate_video_prompts(
         "(downlights, strip LEDs, RGB, RGBW, tunable white), occupancy sensor, presence sensor, "
         "zigbee/z-wave/matter device, smart speaker, mesh WiFi node, patch panel.\n"
         "Experiences/actions: scene activation, automation trigger, geofencing arrival/departure, "
-        "voice command response, app notification, energy dashboard, live camera feed, "
+        "a generic voice interaction (NEVER quote a wake-word or name an assistant), "
+        "app notification, energy dashboard, live camera feed, "
         "two-way intercom, remote access, scheduled automation, presence detection, "
         "multi-room audio, goodnight routine, morning wake scene, away mode, "
         "integration handshake (e.g. 'the thermostat and blinds synchronising at sunset').\n\n"
@@ -379,6 +413,13 @@ async def generate_video_prompts(
 
         "═══ OUTPUT RULES ═══\n"
         "- Do NOT include brand names, logos, recognisable faces, or text overlays in prompts\n"
+        "- NEVER script spoken assistant wake-words or assistant dialogue. Do NOT write "
+        "'Hey Google', 'OK Google', 'Okay Google', 'Alexa', 'Hey Alexa', 'Hey Siri', "
+        "'Hey Bixby', or name any voice assistant (Google Assistant, Alexa, Siri, Bixby). "
+        "If a voice interaction is shown, describe it generically — e.g. 'a person speaks "
+        "a brief voice command and the room responds' — never quote the wake-word or the "
+        "assistant's name. (Google Veo silently REJECTS prompts containing assistant "
+        "wake-words/brand impersonation — this is the #1 cause of failed generations.)\n"
         "- Prompts are for AI video generation — describe only what the camera sees\n"
         "- Use present tense, active voice ('the camera pushes in', not 'camera pushed')\n"
         "- CRITICAL: suggested_aspect_ratio MUST be an exact value from the TARGET MODEL's "
@@ -992,6 +1033,9 @@ async def generate_video(
     """Route video generation to the appropriate provider.
     Returns {status, video_base64, mime_type} or {status, error}."""
 
+    # Strip assistant wake-words/names — Google Veo silently rejects them.
+    prompt = _sanitize_prompt_for_video(prompt)
+
     if provider in ("veo3_free", "veo3_paid"):
         key = api_keys.get("gemini", "")
         if not key:
@@ -1311,8 +1355,19 @@ async def _poll_atlascloud(prediction_id: str, api_key: str, max_wait: int = 600
                 return {"status": "error", "error": f"Atlas Cloud: no video URL found in response — {raw_snippet}"}
 
             if status in ("failed", "error", "cancelled"):
-                msg = data.get("data", {}).get("error") or data.get("error") or "Unknown error"
-                return {"status": "error", "error": f"Atlas Cloud generation failed: {msg}"}
+                _inner = data.get("data") or {}
+                msg = (
+                    _inner.get("error") or _inner.get("message")
+                    or _inner.get("failure_reason") or _inner.get("failureReason")
+                    or _inner.get("detail") or _inner.get("reason")
+                    or data.get("error") or data.get("message")
+                )
+                if not msg:
+                    # No structured reason — dump the (truncated) raw response so
+                    # we see exactly what Atlas Cloud said instead of guessing.
+                    import json as _json
+                    msg = f"no reason given by Atlas Cloud — raw: {_json.dumps(data)[:400]}"
+                return {"status": "error", "error": f"Atlas Cloud generation failed ({status}): {msg}"}
 
     return {"status": "error", "error": f"Atlas Cloud: timed out after {max_wait}s — try a lighter model or shorter duration"}
 
